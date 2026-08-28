@@ -46,8 +46,8 @@ article-brief_CZ.md                      zadání na blogovou serii z teto prace
 hba/                                     řadič SAS3216 „9305-16i“: upgrade na P16.12
   backup_fw_15.00.00.00.bin              záloha původního firmwaru karty (nenahraditelná)
   backup_bios_08.35.00.00.rom            záloha option ROM
-  backup_mpb.bin                         výrobní blok se SAS adresou
   my_clone_P16.bin                       nahraný obraz P16.12 pro SAS3216 klon
+  (sas3flash, sas3ircu ani backup_mpb.bin v repu záměrně NEJSOU)
   README_CZ.md                           identifikace karty, postup, obnova
   firmware/KohoSSD-SED-0004.LOD          SED varianta — jmenuje ST1600FM0013
   firmware/KohoSSD-STD-0004.LOD          standard (base)

@@ -57,8 +57,8 @@ article-brief.md                         brief for a blog series based on this w
 hba/                                     SAS3216 "9305-16i" controller: upgrade to P16.12
   backup_fw_15.00.00.00.bin              backup of the card's original firmware (irreplaceable)
   backup_bios_08.35.00.00.rom            option ROM backup
-  backup_mpb.bin                         manufacturing block with the SAS address
   my_clone_P16.bin                       the flashed P16.12 image for the SAS3216 clone
+  (sas3flash, sas3ircu and backup_mpb.bin are deliberately NOT in the repo)
   README.md                              card identification, procedure, recovery
   firmware/KohoSSD-SED-0004.LOD          SED variant — names ST1600FM0013
   firmware/KohoSSD-STD-0004.LOD          standard (base)
