@@ -39,6 +39,8 @@ dumps/
 official-lod/
   12002SSD-Koho-SAS-0004.zip             oficiální Seagate balíček
 
+linkrate-6g-analyza.md                   proč disky jedou 6 Gb/s a co s tím udělá jiný backplane
+
 hba/                                     řadič SAS3216 „9305-16i“: upgrade na P16.12
   backup_fw_15.00.00.00.bin              záloha původního firmwaru karty (nenahraditelná)
   backup_bios_08.35.00.00.rom            záloha option ROM
