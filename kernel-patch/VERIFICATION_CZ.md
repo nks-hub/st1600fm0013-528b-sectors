@@ -6,6 +6,14 @@ Datum: 28. 8. 2026
 > běží. Viz [RESULTS_CZ.md](RESULTS_CZ.md). Tenhle dokument je snímek z fáze
 > posuzování, ještě před doportováním na API 6.8.
 
+> **Oprava, 28. 8. 2026.** Závěr níže pro novější kernely neplatí. Vznikl
+> z prověření jen řad 6.8 až 6.14. Kernel **7.0 `struct queue_limits *lim`
+> jako ukazatel používá** (25 výskytů `lim->`, žádný `lim.`) a `sd_config_discard()`
+> v něm bere `lim` jako argument. Na vanilla 7.0 patch sedne devíti hunky
+> ze třinácti včetně hunku 10, tedy toho, který se pro 6.8 musel přepsat ručně.
+> Patch tedy cílí na skutečné upstream API, jen o hodně novější, než jsem
+> původně prověřoval. Platí dál, že na 6.8 beze změn nesedne.
+
 ## Závěr napřed
 
 **Patch cílí na API, které v žádném upstream kernelu neexistuje.** Nelze ho

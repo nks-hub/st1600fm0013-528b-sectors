@@ -6,6 +6,15 @@ Date: 28 Aug 2026
 > patch was made to build and run. See [RESULTS.md](RESULTS.md). This document is
 > the snapshot from the assessment stage, before the port to the 6.8 API.
 
+> **Correction, 28 Aug 2026.** The conclusion below is wrong for newer kernels.
+> It was reached by checking 6.8 through 6.14 only. Kernel **7.0 does use
+> `struct queue_limits *lim` as a pointer** (25 occurrences of `lim->`, none of
+> `lim.`), and `sd_config_discard()` there takes `lim` as an argument. Applied to
+> vanilla 7.0, the patch lands 9 of 13 hunks, including hunk 10, the one that had
+> to be rewritten by hand for 6.8. The patch therefore targets a real upstream
+> API, just a much newer one than the range originally checked. What stands is
+> that it does not apply to 6.8 unmodified.
+
 ## Conclusion first
 
 **The patch targets an API that exists in no upstream kernel.** It cannot be
