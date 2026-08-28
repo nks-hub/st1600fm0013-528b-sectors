@@ -38,6 +38,13 @@ dumps/
 
 official-lod/
   12002SSD-Koho-SAS-0004.zip             oficiální Seagate balíček
+
+hba/                                     řadič SAS3216 „9305-16i“: upgrade na P16.12
+  backup_fw_15.00.00.00.bin              záloha původního firmwaru karty (nenahraditelná)
+  backup_bios_08.35.00.00.rom            záloha option ROM
+  backup_mpb.bin                         výrobní blok se SAS adresou
+  muj_clone_P16.bin                      nahraný obraz P16.12 pro SAS3216 klon
+  README.md                              identifikace karty, postup, obnova
   firmware/KohoSSD-SED-0004.LOD          SED varianta — jmenuje ST1600FM0013
   firmware/KohoSSD-STD-0004.LOD          standard (base)
   firmware/KohoSSD-FIPS-0004.LOD         FIPS 140-2
