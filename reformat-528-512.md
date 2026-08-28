@@ -81,39 +81,48 @@ sg_requests --progress /dev/sdX
 Odhad zbývajícího času dělej až po ~5 minutách běhu. Vzorek z prvních 150 s dal
 odhad 2 hodiny, skutečnost byla 42 minut — rozjezd je nelineární.
 
-## Vysledek: hotovo a overeno
+## Výsledek: hotovo a ověřeno
 
-Format dobehl 28. 8. 2026 ve 13:32, trval 36 minut. Tempo bylo po celou dobu linearni
-(20,68 % ve 13:03 az 98,06 % ve 13:31), takze odhad z ustaleneho behu sedel.
+Formát doběhl 28. 8. 2026 ve 13:32 a trval 36 minut. Tempo bylo po celou dobu
+lineární (20,68 % ve 13:03 až 98,06 % ve 13:31), takže odhad z ustáleného běhu seděl.
 
+```
+Last LBA = 781422767,  Number of logical blocks = 781422768
+Logical block length  = 512 bytes
+physical block length = 4096 bytes          (bylo 4224 = 8 × 528)
+Device size           = 400 088 457 216 B = 400,09 GB
+```
 
+Kernel disk konečně vidí:
 
-Kernel disk konecne vidi:
-
-
+```
+NAME HCTL       TRAN  VENDOR   MODEL     SIZE
+sdb  14:0:11:0  sas   IBM-SSG  HSPX400   372,6G
+```
 
 ### Testy integrity
 
-| test | vysledek |
+| test | výsledek |
 |---|---|
-| zarovnany zapis 8 MB, zpetne cteni, md5 | shoda () |
-| nezarovnany zapis, LBA 2049, 17 sektoru | OK |
-| zapis na konec disku, LBA 781 420 720 | OK |
-| SMART po testech | OK, endurance 1 % |
+| zarovnaný zápis 8 MB, zpětné čtení, md5 | shoda (`065a63acf1c056a47d62b333bfe1e328`) |
+| nezarovnaný zápis, LBA 2049, 17 sektorů | OK |
+| zápis na konec disku, LBA 781 420 720 | OK |
+| SMART po testech | OK, endurance stále 1 % |
 
 ### Rychlost
 
+```
+536 870 912 B zapsáno za 1,371 s = 392 MB/s   (oflag=direct)
+```
 
-
-Pro srovnani: nbdkit shim, ktery jsme zamitli, delal 118 MB/s. Nativni pristup je
-tedy pres trikrat rychlejsi a bez jakychkoliv vrstev navic.
+Pro srovnání: nbdkit shim, který jsme zamítli kvůli výkonu, dával 118 MB/s. Nativní
+přístup je tedy přes třikrát rychlejší a bez jakýchkoliv vrstev navíc.
 
 ### Co z toho plyne
 
-Tahle cesta je jednoznacne nejlepsi ze tri, kdyz disk sondu projde: **zadna ztrata
-kapacity, standardni kernel, plna nativni rychlost**. Kernel patch ma smysl vyhradne
-u disku, ktere sondu neprojdou.
-
+Tahle cesta je jednoznačně nejlepší ze tří, pokud disk sondu projde: **žádná ztráta
+kapacity, standardní kernel, plná nativní rychlost**. Kernel patch má smysl výhradně
+u disků, které sondu neprojdou.
 
 ## Srovnání tří cest na 512 B
 
