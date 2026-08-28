@@ -295,32 +295,38 @@ def main():
         log.append("  %-26s guarded on max_unmap_blocks" % "UNMAP condition")
 
 
-    # 6) Move the call to the end of sd_revalidate_disk().
-    #    Both the original patch and a naive port leave it inside
-    #    sd_read_capacity(), which runs several hundred lines BEFORE
-    #    sd_read_block_provisioning(), sd_config_discard() and
-    #    sd_read_write_same(). Everything the restriction sets is therefore
-    #    overwritten by the stock code that follows, including the WRITE SAME
-    #    disable that exists to keep an unresizable payload off the wire. It
-    #    has to be the last word on the subject, not the first.
+    # 6) Placement of both calls the patch adds.
+    #    They have to run after sd_read_block_provisioning(),
+    #    sd_config_discard() and sd_read_write_same(), or the stock code that
+    #    follows overwrites everything they set -- including the WRITE SAME
+    #    disable that keeps an unresizable payload off the wire.
+    #    The patch instead puts the restriction inside sd_read_capacity(), and
+    #    anchors the queue-depth cap on `if (!scsi_device_online(sdp))`, whose
+    #    first occurrence in sd.c is in sd_sync_cache(). A cache flush is not
+    #    where queue depth belongs, and on an idle disk it never runs at all,
+    #    so the cap silently never applies. Move both to the end of
+    #    sd_revalidate_disk().
     A_LATE = ["\t\tsd_config_protection(sdkp, lim);\n",
               "\t\tsd_config_protection(sdkp);\n",
               "\t\tsd_read_security(sdkp, buffer);\n"]
-    call = re.search(r"[ \t]*if \(sdkp->emulate_512_from_fat\)\n"
-                     r"[ \t]*sd_528_restrict_block_ops\([^;]*\);\n", text)
-    late = first_anchor(text, A_LATE)
-    if not call or not late:
-        log.append("  %-26s call or anchor not found, SKIPPED" % "restriction placement")
-    elif call.start() > text.index(late):
-        log.append("  %-26s already last" % "restriction placement")
+    args = "sdkp, lim" if gen == "ptr" else "sdkp"
+    BLOCK = ("\n\t\tif (sdkp->emulate_512_from_fat) {\n"
+             "\t\t\tsd_528_restrict_block_ops(%s);\n"
+             "\t\t\tsd_528_limit_queue_depth(sdkp);\n"
+             "\t\t}\n" % args)
+    if BLOCK in text:
+        log.append("  %-26s already placed" % "late call block")
     else:
-        args = "sdkp, lim" if gen == "ptr" else "sdkp"
-        text = text[:call.start()] + text[call.end():]
-        i = text.index(late) + len(late)
-        text = (text[:i] + "\n\t\tif (sdkp->emulate_512_from_fat)\n"
-                "\t\t\tsd_528_restrict_block_ops(%s);\n" % args + text[i:])
-        log.append("  %-26s moved after %s" % ("restriction placement", late.strip()))
-
+        text = re.sub(r"[ \t]*if \(sdkp->emulate_512_from_fat\)\n"
+                      r"[ \t]*sd_528_restrict_block_ops\([^;]*\);\n", "", text)
+        text = re.sub(r"[ \t]*sd_528_limit_queue_depth\(sdkp\);\n", "", text)
+        late = first_anchor(text, A_LATE)
+        if late:
+            i = text.index(late) + len(late)
+            text = text[:i] + BLOCK + text[i:]
+            log.append("  %-26s moved after %s" % ("late call block", late.strip()))
+        else:
+            log.append("  %-26s anchor not found, SKIPPED" % "late call block")
 
     # 7) init_sd() frees the context pool twice when the page pool fails to
     #    allocate: once inline, then again through the err_out_528_page_pool
