@@ -40,7 +40,24 @@ official-lod/
 
 tools/
   hdd_firmware_tools/                    parser LOD souborů, větev ibm-wip
+  patch_ibm_lock.py                      patcher zámku (7 bajtů + checksum)
+  diff_config_records.py                 rozbor TLV záznamů, IBM vs Seagate
+  classify_regions.py                    klasifikace oblastí flash
+  map_lod_to_flash.py                    mapování LOD na dump
+  dump_config_block.py                   výpis konfiguračního bloku
+  sector528_shim.py                      nbdkit plugin 528 -> 512 (userspace)
+
+kernel-patch/
+  wvg-sd-528.patch                       cizí patch sd driveru, PŮVOD NEZNÁMÝ
+  rebase_pve_528_patch.py                jeho rebase nástroj
+  apply_manual_hunks.py                  můj pokus doaplikovat odmítnuté hunky
+  PUVOD.md                               co o patchi víme
+  OVERENI.md                             proč ho zatím nelze použít
 ```
+
+> **Pozor na `kernel-patch/`** — ten patch cílí na API, které v žádném upstream
+> kernelu (6.8–6.14) neexistuje, a vše nasvědčuje tomu, že nikdy neprošel
+> překladem. Podrobnosti v `kernel-patch/OVERENI.md`.
 
 ### Kontrolní součty
 
