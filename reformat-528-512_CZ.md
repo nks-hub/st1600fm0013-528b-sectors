@@ -20,7 +20,7 @@ a na medium se nesahá. Bajty 7–8 = délka parametrů `0x0010`.
 | Disk | Výrobce | Výsledek |
 |---|---|---|
 | IBM-SSG **HSPX400** 400 GB | HGST (OUI `5000cca`) | `SCSI Status: Good` |
-| IBM-SSG **IBM-SSGSSVJ1P6** 1,6 TB | Seagate | `Illegal Request — Invalid field in parameter list` |
+| IBM-SSG **IBM-SSGSSVJ1P6** 1,6 TB | Seagate | `Illegal Request, Invalid field in parameter list` |
 
 Sonda trvá zlomek vteřiny a nic nezničí. **Je to první věc, kterou má smysl na
 takovém disku spustit** – řekne dopředu, jestli má cenu řešit kernel patch nebo SPI
