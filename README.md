@@ -5,7 +5,7 @@ locked to 528-byte sectors and a 6 Gb/s link.
 
 *Czech version: [README_CZ.md](README_CZ.md)*
 
-**Status: 512 B SOLVED — two ways.**
+**Status: 512 B is solved, two ways.**
 
 1. **Reformat.** Disks that are not Seagate-locked accept
    `sg_format --size=512` outright: no capacity loss, stock kernel, full native

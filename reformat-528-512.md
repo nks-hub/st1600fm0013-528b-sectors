@@ -126,7 +126,7 @@ layers at all.
 
 ### What this means
 
-This route is clearly the best of the three when the disk passes the probe: **no
+This route is the best of the three when the disk passes the probe: **no
 capacity loss, stock kernel, full native speed**. The kernel patch is worth it
 only for disks that fail the probe.
 

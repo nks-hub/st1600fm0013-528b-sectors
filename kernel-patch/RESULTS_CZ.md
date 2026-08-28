@@ -1,28 +1,28 @@
-# Kernel patch funguje — 528B disk jako nativní 512B
+# Kernel patch funguje – 528B disk jako nativní 512B
 
 Datum: 28. 8. 2026
 
 > **Přečti si nejdřív tohle:** pokud disk přijme obyčejný `sg_format --size=512`,
-> jdi tou cestou — žádná ztráta kapacity, standardní kernel, plná nativní
+> jdi tou cestou – žádná ztráta kapacity, standardní kernel, plná nativní
 > rychlost. Viz [../reformat-528-512_CZ.md](../reformat-528-512_CZ.md). Tenhle
 > patch je pro disky, které reformát odmítnou.
 
 ## Závěr
 
 Patch `wvg-sd-528`, doportovaný na kernel 6.8, **funguje**. Disk se 528bajtovými
-sektory se v systému objeví jako standardní 512bajtové blokové zařízení. Ověřeno
-zápisem i čtením včetně křížové validace proti nativnímu 528B přístupu.
+sektory se v systému objeví jako standardní 512bajtové blokové zařízení. Ověřeno
+zápisem i čtením včetně křížové validace proti nativnímu 528B přístupu.
 
-Cena je 16 bajtů z každého sektoru: **1,55 TB místo 1,60 TB** na disk, tedy
-zhruba 388 GB z celkových 12,8 TB.
+Cena je 16 bajtů z každého sektoru: **1,55 TB místo 1,60 TB** na disk, tedy
+zhruba 388 GB z celkových 12,8 TB.
 
-**Rychlost linku to neřeší.** Limit 6 Gb/s sedí ve firmwaru disku a kernel s ním
+**Rychlost linku to neřeší.** Limit 6 Gb/s sedí ve firmwaru disku a kernel s ním
 nic nezmůže.
 
 ## Jak se to testovalo bez restartu
 
-Hostitel se restartovat nesměl, takže se testovalo v QEMU se SCSI passthrough —
-virtuálka dostane přímý přístup k fyzickému disku, hostitel běží nedotčený:
+Hostitel se restartovat nesměl, takže se testovalo v QEMU se SCSI passthrough –
+virtuálka dostane přímý přístup k fyzickému disku, hostitel běží nedotčený:
 
 ```bash
 qemu-system-x86_64 -enable-kvm -m 2048 -smp 2 -nographic -no-reboot \
@@ -34,8 +34,8 @@ qemu-system-x86_64 -enable-kvm -m 2048 -smp 2 -nographic -no-reboot \
   -device scsi-generic,drive=d0,bus=scsi0.0
 ```
 
-Podstatné je `scsi-generic` — QEMU ho popisuje jako *„pass through generic scsi
-device (/dev/sg*)"*. Initramfs stačí postavit z busyboxu.
+Podstatné je `scsi-generic` – QEMU ho popisuje jako *„pass through generic scsi
+device (/dev/sg*)"*. Initramfs stačí postavit z busyboxu.
 
 ## Výsledky
 
@@ -62,7 +62,7 @@ emulate_512_from_fat_sectors=1
 ### Křížová validace
 
 Nejsilnější důkaz. Data zapsaná přes emulované 512B zařízení přečtena
-z hostitele nativně jako 528bajtový sektor:
+z hostitele nativně jako 528bajtový sektor:
 
 ```
 sg_raw -r 528 -o out.bin /dev/sg2 28 00 00 00 03 e8 00 00 01 00
@@ -103,12 +103,12 @@ make olddefconfig
 make -j$(nproc) bzImage modules
 ```
 
-Hotový `arch/x86/boot/bzImage` má 13 492 736 B.
+Hotový `arch/x86/boot/bzImage` má 13 492 736 B.
 
-## Co bylo potřeba opravit v patchi
+## Co bylo potřeba opravit v patchi
 
 Patch cílil na strom, kde se limity fronty předávají jako
-`struct queue_limits *lim`. To v upstream neexistuje — ověřeno pro 6.8 až 6.14.
+`struct queue_limits *lim`. To v upstream neexistuje – ověřeno pro 6.8 až 6.14.
 
 | Místo | Oprava |
 |---|---|
@@ -117,13 +117,13 @@ Patch cílil na strom, kde se limity fronty předávají jako
 | Hunk 10 | `lim->max_dev_sectors` → `q->limits.max_dev_sectors`, `lim->max_segments` → `q->limits.max_segments` |
 
 Past, na kterou jsem dvakrát naletěl: kontrola typu
-`if "sd_528_effective_max_sectors" in text` je falešně pozitivní — ten symbol
-přijde už s hunkem 1, takže se hunk 10 tvářil jako hotový, i když nebyl.
+`if "sd_528_effective_max_sectors" in text` je falešně pozitivní – ten symbol
+přijde už s hunkem 1, takže se hunk 10 tvářil jako hotový, i když nebyl.
 Správně se kontroluje `emu_cap`.
 
 ## Nasazení na fyzický stroj
 
-Server bootuje PXE z netbootxyz (kontejner s nginx). Vzor menu položky je v `live-ubuntu.ipxe`:
+Server bootuje PXE z netbootxyz (kontejner s nginx). Vzor menu položky je v `live-ubuntu.ipxe`:
 
 ```
 kernel ${kernel_url}vmlinuz ip=dhcp boot=casper netboot=url url=${squash_url} \
@@ -131,20 +131,20 @@ kernel ${kernel_url}vmlinuz ip=dhcp boot=casper netboot=url url=${squash_url} \
 initrd ${kernel_url}initrd
 ```
 
-Stačí nahrát `bzImage` a přidat položku s `sd_mod.emulate_512_from_fat_sectors=1`
-v cmdline. Protože je to liveboot, neúspěšný boot vyřeší prostý restart — nic se
+Stačí nahrát `bzImage` a přidat položku s `sd_mod.emulate_512_from_fat_sectors=1`
+v cmdline. Protože je to liveboot, neúspěšný boot vyřeší prostý restart – nic se
 nemůže trvale rozbít.
 
 ## Než na to půjdou ostrá data
 
 Testy výše prošly, ale byly krátké. Před produkčním nasazením:
 
-- `fio` s verifikací přes několik hodin,
+- `fio` s verifikací přes několik hodin,
 - `badblocks -w` na celý disk,
-- test s filesystémem (mkfs, zápis, umount, fsck),
+- test s filesystémem (mkfs, zápis, umount, fsck),
 - ověřit chování při výpadku napájení uprostřed zápisu.
 
 Emulace zahazuje 16 bajtů metadat, které si IBM firmware používá pro vlastní
-kontrolu integrity. Disk je nadále nebude vidět konzistentní — pro nás to nevadí
-(používáme ho jako obyčejný blokový disk), ale v IBM poli by ten disk už neměl
+kontrolu integrity. Disk je nadále nebude vidět konzistentní – pro nás to nevadí
+(používáme ho jako obyčejný blokový disk), ale v IBM poli by ten disk už neměl
 co dělat.
