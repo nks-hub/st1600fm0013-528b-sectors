@@ -81,6 +81,40 @@ sg_requests --progress /dev/sdX
 Odhad zbývajícího času dělej až po ~5 minutách běhu. Vzorek z prvních 150 s dal
 odhad 2 hodiny, skutečnost byla 42 minut — rozjezd je nelineární.
 
+## Vysledek: hotovo a overeno
+
+Format dobehl 28. 8. 2026 ve 13:32, trval 36 minut. Tempo bylo po celou dobu linearni
+(20,68 % ve 13:03 az 98,06 % ve 13:31), takze odhad z ustaleneho behu sedel.
+
+
+
+Kernel disk konecne vidi:
+
+
+
+### Testy integrity
+
+| test | vysledek |
+|---|---|
+| zarovnany zapis 8 MB, zpetne cteni, md5 | shoda () |
+| nezarovnany zapis, LBA 2049, 17 sektoru | OK |
+| zapis na konec disku, LBA 781 420 720 | OK |
+| SMART po testech | OK, endurance 1 % |
+
+### Rychlost
+
+
+
+Pro srovnani: nbdkit shim, ktery jsme zamitli, delal 118 MB/s. Nativni pristup je
+tedy pres trikrat rychlejsi a bez jakychkoliv vrstev navic.
+
+### Co z toho plyne
+
+Tahle cesta je jednoznacne nejlepsi ze tri, kdyz disk sondu projde: **zadna ztrata
+kapacity, standardni kernel, plna nativni rychlost**. Kernel patch ma smysl vyhradne
+u disku, ktere sondu neprojdou.
+
+
 ## Srovnání tří cest na 512 B
 
 | cesta | funguje na | ztráta kapacity | čas | nároky |
