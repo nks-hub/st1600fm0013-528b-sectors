@@ -1,89 +1,92 @@
-# HBA: SAS3216 klon „9305-16i" — upgrade firmwaru na P16.12
+# HBA: SAS3216 "9305-16i" clone — firmware upgrade to P16.12
 
-Datum: 28. 8. 2026. Server test-server, slot 3, PCI `b3:00.0`.
+Date: 28 Aug 2026. Test server, slot 3, PCI `b3:00.0`.
 
-## Co ta karta vlastně je
+## What the card actually is
 
-Prodává se jako 9305-16i, ale není to retail Broadcom. Skutečný 9305-16i stojí na
-čipu **SAS3224**; tahle karta má **SAS3216** a k němu interní SFF-8643 konektory —
-kombinaci, na kterou žádný oficiální firmware nemíří.
+It is sold as a 9305-16i, but it is not a retail Broadcom. A genuine 9305-16i is
+built on the **SAS3224** chip; this card has a **SAS3216** with internal SFF-8643
+connectors — a combination no official firmware targets.
 
-Že jde o klon, prozradí `sas3flash -c 0 -list`:
+`sas3flash -c 0 -list` gives the clone away:
 
 ```
-Board Name          : Avago SAS3216      generický název čipu, ne „SAS9305-16i"
+Board Name          : Avago SAS3216      generic chip name, not "SAS9305-16i"
 Board Assembly      : N/A
 Board Tracer Number : N/A
 ```
 
-Prázdné Assembly i Tracer znamenají generický výrobní region. Retail kus by tam měl
-číslo sestavy a sériový tracer.
+Empty Assembly and Tracer mean a generic manufacturing region. A retail unit
+would carry an assembly number and a serial tracer there.
 
-Stav před zásahem:
+State before the work:
 
 | | |
 |---|---|
-| Čip | SAS3216(A1), PCI `1000:00c9`, subsystém `1000:3180` |
+| Chip | SAS3216(A1), PCI `1000:00c9`, subsystem `1000:3180` |
 | Firmware | 15.00.00.00 |
 | NVDATA | 0b.04.00.23 |
 | BIOS | 08.35.00.00 |
-| SAS adresa | `500062b-2-REDACTED-a780` |
+| SAS address | `500062b-2-…-a780` |
 
-Subsystém `3180` patří 9305-**16e**, protože 16e je taky SAS3216. Karta má ale porty
-interní. Právě tenhle rozpor definuje ten klon.
+Subsystem `3180` belongs to the 9305-**16e**, because the 16e is also a SAS3216.
+This card, however, has internal ports. That contradiction is what defines the
+clone.
 
-## Proč nešel oficiální firmware
+## Why official firmware would not work
 
-Oba balíky P16.12 od 45Drives (16i i 24i) nesou v sobě řetězec `LSISAS3224`. Naše
-karta je SAS3216 a její vlastní firmware obsahuje `LSISAS3216`. `sas3flash` takový
-nesoulad odmítne:
+Both P16.12 packages from 45Drives (16i and 24i) carry the string `LSISAS3224`
+inside. Our card is a SAS3216 and its own firmware contains `LSISAS3216`.
+`sas3flash` refuses such a mismatch:
 
 ```
 ERROR: NVDATA Image does not match Controller Device ID!
 Device ID - NVDATA:0xc4 Controller:0xc9
 ```
 
-Odmítnutí je bezpečné, kartu nepoškodí. Nebezpečné je něco jiného: firmware od
-Supermicro se podle diskuse na TrueNAS fóru nahraje *bez chyby*, ale karta pak
-nefunguje vůbec.
+The refusal is safe and does not harm the card. Something else is dangerous:
+according to the discussion on the TrueNAS forum, firmware from Supermicro
+flashes *without an error*, but the card then does not work at all.
 
-Oficiálně poslední verze pro SAS3216 je 15.00.00.00 — tedy to, co na kartě už bylo.
+The officially latest version for the SAS3216 is 15.00.00.00 — which is what was
+already on the card.
 
-## Řešení
+## The solution
 
-[kjake/sas3216-9305-firmware](https://github.com/kjake/sas3216-9305-firmware) vezme
-stock 9305-16i P16.12 a přepíše v něm NVDATA: identitu čipu na SAS3216 a k tomu
-ponechá 16portovou interní PHY mapu z 16i. Přepočítá kontrolní součty jednotlivých
-záznamů a obraz vyváží.
+[kjake/sas3216-9305-firmware](https://github.com/kjake/sas3216-9305-firmware)
+takes stock 9305-16i P16.12 and rewrites the NVDATA in it: the chip identity
+becomes SAS3216 while the 16-port internal PHY map from the 16i is kept. It
+recalculates the per-record checksums and rebalances the image.
 
-### Ověřovací řetězec
+### The verification chain
 
-Nic se neflashovalo, dokud nesouhlasily všechny čtyři body:
+Nothing was flashed until all four points lined up:
 
-1. **Naše záloha je bajt po bajtu shodná s referenční zálohou klonu** z repa
-   (`firmware/original-clone-P15/firmware0.fw`):
-   `cmp -l` → 0 rozdílných bajtů z 959 848. Naše karta tedy *je* přesně ten kus
-   hardwaru, proti kterému autor celý nástroj validoval.
-2. **Vlastní build z nezávisle staženého základu** (45Drives) dal obraz bajtově
-   shodný s předpřipraveným v repu. Dodaný obraz tedy není podstrčený a transformace
-   je deterministická.
-3. **Kontrolní součty repa souhlasí** s hodnotami v jeho dokumentaci.
-4. **Sám `sas3flash` při zápisu potvrdil** `NVDATA Device ID and Chip Revision match
-   verified` — tedy právě tu kontrolu, na které stock 3224 obraz padal.
+1. **Our backup is byte-for-byte identical to the reference clone backup** in the
+   repository (`firmware/original-clone-P15/firmware0.fw`): `cmp -l` → 0 differing
+   bytes out of 959,848. Our card therefore *is* precisely the hardware the
+   author validated the whole tool against.
+2. **A local build from an independently downloaded base** (45Drives) produced an
+   image byte-identical to the prebuilt one in the repository. The supplied image
+   is therefore not tampered with and the transform is deterministic.
+3. **The repository checksums match** the values in its documentation.
+4. **`sas3flash` itself confirmed during the write**: `NVDATA Device ID and Chip
+   Revision match verified` — exactly the check the stock 3224 image failed.
 
-Sedí i drobnost: repo píše, že `phys(24)` je kosmetické, firmware dědí 24 PHY slotů
-z 16i/3224 NVDATA a enumeruje jen 16 zapojených. Přesně to karta hlásí — phy 0–7 a
-16–23 aktivní, 8–15 vypnuté.
+A small detail fits too: the repository notes that `phys(24)` is cosmetic, that
+the firmware inherits 24 PHY slots from the 16i/3224 base NVDATA and only
+enumerates the 16 that are wired. That is exactly what the card reports — phys
+0–7 and 16–23 active, 8–15 disabled.
 
-## Provedený postup
+## The procedure used
 
 ```bash
-# nástroje
+# tools
 curl -LO http://images.45drives.com/tools/sas3ircu
 curl -LO http://images.45drives.com/Firmware/LSI9305/sas3flash/linux/sas3flash
 chmod +x sas3ircu sas3flash
 
-# zálohy (stdin na /dev/null, jinak si utilita sežere zbytek skriptu ve stránkovači)
+# backups (stdin from /dev/null, or the utility's pager eats the rest of the script)
 ./sas3flash -o -c 0 -ufirmware backup_fw_15.00.00.00.bin  < /dev/null
 ./sas3flash -o -c 0 -ubios     backup_bios_08.35.00.00.rom < /dev/null
 ./sas3flash -o -c 0 -umpb      backup_mpb.bin              < /dev/null
@@ -92,13 +95,13 @@ chmod +x sas3ircu sas3flash
 curl -LO http://images.45drives.com/Firmware/LSI9305/16i/SAS9305_16i_IT_P.bin
 git clone https://github.com/kjake/sas3216-9305-firmware.git
 python3 sas3216-9305-firmware/build_3216_clone_fw.py \
-        --base SAS9305_16i_IT_P.bin --out muj_clone_P16.bin
+        --base SAS9305_16i_IT_P.bin --out my_clone_P16.bin
 
-# flash, bez option ROM (IT mode, ze systému se z HBA nebootuje)
-./sas3flash -o -c 0 -f muj_clone_P16.bin < /dev/null
+# flash, no option ROM (IT mode, the OS does not boot from the HBA)
+./sas3flash -o -c 0 -f my_clone_P16.bin < /dev/null
 ```
 
-## Výsledek
+## Result
 
 ```
 Firmware Version 16.00.12.00
@@ -108,117 +111,121 @@ NVDATA Device ID and Chip Revision match verified.
 Firmware Flash Successful.   Adapter Successfully Reset.
 ```
 
-| | před | po |
+| | before | after |
 |---|---|---|
 | Firmware | 15.00.00.00 | **16.00.12.00** |
 | NVDATA | 0b.04.00.23 | 10.00.00.24 |
-| SAS adresa | `500062b-2-REDACTED-a780` | beze změny |
-| Board Name | Avago SAS3216 | beze změny |
+| SAS address | `500062b-2-…-a780` | unchanged |
+| Board Name | Avago SAS3216 | unchanged |
 
-Reset řadiče proběhl za provozu (`mpt3sas_base_hard_reset_handler: SUCCESS`), disk
-zůstal viditelný. Chybové čítače linky jsou po resetu vynulované — je to nová
-základna, ne důkaz zlepšení; před zásahem stálo `phy_reset_problem_count` na 486,
-což byl důsledek přepojování disků.
+The controller reset happened while the system was running
+(`mpt3sas_base_hard_reset_handler: SUCCESS`) and the disk stayed visible. The
+link error counters are zeroed after the reset — that is a new baseline, not
+proof of improvement; before the work `phy_reset_problem_count` stood at 487,
+which was the result of re-plugging disks.
 
-Pro plné uplatnění nového firmwaru doporučuje dokumentace **studený start**, ne
-teplý restart.
+To apply the new firmware fully, the documentation recommends a **cold start**,
+not a warm reboot.
 
-## Co ten upgrade přinesl
+## What the upgrade brought
 
-Broadcom kumulativní changelog Phase 15 → Phase 16 nikdy nezveřejnil. Dostupné jsou
-dvě věci: release notes k samotnému point releasu (`docs/Intruder_Release_Notes_16.00.12.00.pdf`)
-a samotné firmware obrazy, které lze porovnat.
+Broadcom never published a cumulative Phase 15 → Phase 16 changelog. Two things
+are available: the release notes for the point release itself
+(`docs/Intruder_Release_Notes_16.00.12.00.pdf`) and the firmware images
+themselves, which can be compared.
 
-### Co je v release notes k 16.00.12.00
+### What is in the release notes for 16.00.12.00
 
-Dvě opravy, **obě SATA only** — na naše SAS disky tedy nemají vliv:
+Two fixes, **both SATA only** — so they have no effect on our SAS disks:
 
-| ID | Co to řeší |
+| ID | What it addresses |
 |---|---|
-| DCSG00398894 | WRITE SAME NCQ encapsulation posílalo Non-Data NCQ příkaz disku, který ho neumí, i když umí Zero EXT. Projev: I/O chyby při `mkfs.ext4`. |
-| DCSG00411882 | Zacyklení při dokončování ATA pass-through příkazu s čekajícím I/O s neplatným CDB → zatuhnutí řadiče. Projev: zakládání ZFS poolu na přímo připojených SSD. |
+| DCSG00398894 | WRITE SAME NCQ encapsulation sent a Non-Data NCQ command to a drive that does not support it, even when it supports Zero EXT. Symptom: I/O errors during `mkfs.ext4`. |
+| DCSG00411882 | Recursion while completing an ATA pass-through command with a pending I/O carrying an invalid CDB → controller hang. Symptom: creating a ZFS pool on directly attached SSDs. |
 
-Komunita k Phase 16 uvádí, že řeší „performance issues causing the controller to
-reset". Nikdo to ale veřejně nedoložil měřením před/po.
+The community says Phase 16 addresses "performance issues causing the controller
+to reset". Nobody has publicly backed that with before/after measurements.
 
-### Co ukázalo porovnání obrazů
+### What comparing the images showed
 
-Vlastní diff řetězců mezi zálohou P15 a nahraným P16.12:
+A local string diff between the P15 backup and the flashed P16.12:
 
 ```
-P15  5400 unikátních řetězců, obraz 959 848 B
-P16  5467 unikátních řetězců, obraz 998 280 B   (+38 KB, +4 %)
-přibylo 1021, ubylo 954
+P15  5400 unique strings, image 959,848 B
+P16  5467 unique strings, image 998,280 B   (+38 kB, +4 %)
+1021 added, 954 removed
 ```
 
-Změny nejsou kosmetické. Přibyly celé skupiny:
+The changes are not cosmetic. Whole groups appeared:
 
 - **FPE (Fast Path Engine)** — `FPE Control Request Pause/UNPause`, `FPE Dev State
-  Table`, `FPE Timeout Error`, `FPE Timeout Missed IOs`, `FPE Start Pend Postponed`.
-  Nová logika okolo pauzování a timeoutů fast path. Sedí to na tvrzení o opravě
-  resetů řadiče.
-- **Discovery** — `DISC: SAS/SATA Port Enable Complete` / `not complete yet` s výpisem
-  čekajících stavů, a `DISC: The SMP Discover response indicated that devH is no
-  longer there`. Lepší ošetření zařízení, které během discovery zmizí.
+  Table`, `FPE Timeout Error`, `FPE Timeout Missed IOs`, `FPE Start Pend
+  Postponed`. New logic around fast-path pausing and timeouts. That fits the
+  claim about fixing controller resets.
+- **Discovery** — `DISC: SAS/SATA Port Enable Complete` / `not complete yet` with
+  the pending state printed, and `DISC: The SMP Discover response indicated that
+  devH is no longer there`. Better handling of a device disappearing mid-discovery.
 - **Enclosure management** — `EM VppGetCableSwapConnID`, `EM VppI2CDrvPresPoll`,
-  `EM VppSetSlotNum`, `EM SesPg0AMap PhyIdx`. Mapování slotů backplane a polling
-  přítomnosti disků.
-- **Task management** — `Error: TM request failed with status`, `ERROR: Unable to find
-  an outstanding IO for DevHandle`.
+  `EM VppSetSlotNum`, `EM SesPg0AMap PhyIdx`. Backplane slot mapping and drive
+  presence polling.
+- **Task management** — `Error: TM request failed with status`, `ERROR: Unable to
+  find an outstanding IO for DevHandle`.
 - **Firmware download** — `FWDL Failed LogInfo`, `FWDL Status IOCStatus`.
 
-Konkrétní oprava, kterou je vidět přímo v diffu — prohozené šířky bitových polí při
-dekódování chybového stavu portu:
+One concrete fix is visible directly in the diff — swapped bit-field widths when
+decoding the port error state:
 
 ```
 P15   Clear PORTERR: Core(2):Link(6):IntStatus(8):PllcState(16)
 P16   Clear PORTERR: Core(2):Link(6):IntStatus(16):PllcState(8)
 ```
 
-Přibylo taky hlášení `CSW SPICO ECC error` (ECC chyby v SerDes mikrokontroléru) a do
-výpisu zařízení sloupec `Width`. Diagnostika se obecně zpřesnila — spousta formátů se
-rozšířila z `%x` na `%08x` / `%04x`.
+A `CSW SPICO ECC error` report was also added (ECC errors in the SerDes
+microcontroller), plus a `Width` column in the device listing. Diagnostics got
+more precise in general — many format specifiers widened from `%x` to `%08x` /
+`%04x`.
 
-Pro nás je relevantní hlavně ta linková část: naměřili jsme `phy_reset_problem_count`
-486 a neplatné dwordy, což je přesně oblast, které se oprava PORTERR a hlášení SPICO
-ECC týkají.
+For us the link-layer part is the relevant one: we measured a
+`phy_reset_problem_count` of 487 and invalid dwords, which is exactly the area
+the PORTERR fix and the SPICO ECC reporting touch.
 
-MPI rozhraní se posunulo 206.30 → 206.32.
+The MPI interface moved from 206.30 to 206.32.
 
-## Co to nevyřešilo
+## What this did not solve
 
-Rychlost linku zůstává 6 Gb/s. Řadič nabízí 12 Gb/s na všech phy (`maximum_linkrate
-12.0 Gbit`, `hw_max 12.0 Gbit`) — strop drží disk, ne HBA. Upgrade firmwaru řadiče
-na tom nemohl nic změnit a taky nezměnil.
+The link rate stays at 6 Gb/s. The controller offers 12 Gb/s on all phys
+(`maximum_linkrate` and `hw_max` both 12.0 Gbit) — the ceiling is held by the
+disk, not the HBA. A controller firmware upgrade could not have changed that,
+and it did not.
 
-## Obnova
+## Recovery
 
-Zálohy v tomhle adresáři jsou pro tuhle kartu nenahraditelné — server běží jako
-liveboot, takže cokoliv v `/root` zmizí při restartu.
+The backups in this directory are irreplaceable for this particular card — the
+server runs as a live boot, so anything in `/root` disappears on restart.
 
 ```bash
 ./sas3flash -o -c 0 -f backup_fw_15.00.00.00.bin < /dev/null
-./sas3flash -o -c 0 -b backup_bios_08.35.00.00.rom < /dev/null   # jen když je potřeba option ROM
-./sas3flash -o -c 0 -sasadd REDACTED-SAS-ADDRESS < /dev/null          # jen když je adresa vynulovaná
+./sas3flash -o -c 0 -b backup_bios_08.35.00.00.rom < /dev/null   # only if you need the option ROM
+./sas3flash -o -c 0 -sasadd <your card's SAS address> < /dev/null # only if the address is zeroed
 ```
 
-`-e 6` maže firmware, ale výrobní oblast nechává, takže SAS adresa přežije.
-`-e 7` smaže i ji — pak je nutné adresu vrátit ručně.
+`-e 6` erases the firmware but leaves the manufacturing area, so the SAS address
+survives. `-e 7` erases that too — then the address has to be restored by hand.
 
-## Obsah adresáře
+## Directory contents
 
-| Soubor | SHA-256 | Co to je |
+| File | SHA-256 | What it is |
 |---|---|---|
-| `backup_fw_15.00.00.00.bin` | `e2fc1ee7…24cfd3a` | **Záloha původního firmwaru karty.** Shodná s referenčním klonem z repa. |
-| `backup_bios_08.35.00.00.rom` | `28a9e758…1d63d0` | Záloha option ROM. |
-| `backup_mpb.bin` | `9acf33aa…5ec9af9d` | Výrobní blok (SAS adresa, identita desky). |
-| `muj_clone_P16.bin` | `2ddb5ee0…8a27314` | Nahraný obraz. Vlastní build, bajtově shodný s validovaným z repa. |
-| `SAS9305_16i_IT_P.bin` | `917d0c11…b316464` | Stock základ P16.12 (SAS3224, sám o sobě nepoužitelný). |
-| `SAS9305_24i_IT_P.bin` | `3ed68273…b74a65b` | Stock 24i, jen pro srovnání. |
-| `sas3flash`, `sas3ircu` | | Nástroje od 45Drives. |
-| `docs/*.pdf` | | Dokumentace z balíčku P16.12: release notes, BIOS, UEFI BSD, quick reference k `sas3flash`. |
+| `backup_fw_15.00.00.00.bin` | `e2fc1ee7…24cfd3a` | **Backup of the card's original firmware.** Identical to the reference clone in the upstream repository. |
+| `backup_bios_08.35.00.00.rom` | `28a9e758…1d63d0` | Option ROM backup. |
+| `backup_mpb.bin` | `9acf33aa…5ec9af9d` | Manufacturing block (SAS address, board identity). |
+| `my_clone_P16.bin` | `2ddb5ee0…8a27314` | The image that was flashed. A local build, byte-identical to the validated one from the repository. |
+| `SAS9305_16i_IT_P.bin` | `917d0c11…b316464` | Stock P16.12 base (SAS3224, unusable on its own). |
+| `SAS9305_24i_IT_P.bin` | `3ed68273…b74a65b` | Stock 24i, for comparison only. |
+| `sas3flash`, `sas3ircu` | | Tools from 45Drives. |
+| `docs/*.pdf` | | Documentation from the P16.12 package: release notes, BIOS, UEFI BSD, `sas3flash` quick reference. |
 
-## Zdroje
+## Sources
 
 - [kjake/sas3216-9305-firmware](https://github.com/kjake/sas3216-9305-firmware)
 - [TrueNAS: Help finding updated firmware for Avago SAS3216 9305-16i HBA card](https://forums.truenas.com/t/help-finding-updated-firmware-for-avago-sas3216-9305-16i-hba-card/62254)

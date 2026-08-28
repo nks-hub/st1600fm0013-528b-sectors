@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Rozebrat konfiguracni blok na TLV zaznamy a porovnat IBM vs Seagate.
+"""Parse the configuration block into TLV records and compare IBM vs Seagate.
 
-Format zaznamu:  [id:1][len:2][00 00][id:1][len-4:2][data...]
-Cilem je najit vsechna mista, kde se IBM lisi od Seagate, a odlisit
-zaznamy vazane na konkretni kus (serial, SAS adresa) od tech, ktere
-nesou konfiguraci chovani.
+Record format:  [id:1][len:2][00 00][id:1][len-4:2][data...]
+The goal is to find every place where IBM differs from Seagate, and to tell
+records tied to a specific unit (serial, SAS address) apart from those that
+carry behavioural configuration.
 """
 import os, sys, struct
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -14,14 +14,14 @@ P = lambda n: os.path.join(BASE, "dumps", n)
 
 
 def parse_records(data, start, length):
-    """Projde konfiguracni blok a vrati seznam (offset, id, len, telo)."""
+    """Walk the configuration block and return a list of (offset, id, len, body)."""
     recs = []
     pos = start
     end = start + length
     while pos < end - 8:
         rid = data[pos]
         rlen = (data[pos + 1] << 8) | data[pos + 2]
-        # validace: druhy vyskyt id a delky o 4 mensi
+        # validation: second occurrence of the id, with a length 4 smaller
         if rlen < 4 or rlen > 0x400 or pos + rlen > end:
             pos += 1
             continue
@@ -47,19 +47,19 @@ def main():
         ln = struct.unpack("<H", d[base + 4:base + 6])[0]
         recs = parse_records(d, base, ln)
         out[name] = recs
-        print("%s: konfig blok @0x%06x delka 0x%04x -> %d zaznamu"
+        print("%s: config block @0x%06x length 0x%04x -> %d records"
               % (name, base, ln, len(recs)))
     print()
 
     ibm_ids = {r[1] for r in out["IBM"]}
     sga_ids = {r[1] for r in out["SGA"]}
-    print("ID pouze v IBM :", " ".join("0x%02x" % x for x in sorted(ibm_ids - sga_ids)) or "(zadne)")
-    print("ID pouze v SGA :", " ".join("0x%02x" % x for x in sorted(sga_ids - ibm_ids)) or "(zadne)")
-    print("ID v obou      :", " ".join("0x%02x" % x for x in sorted(ibm_ids & sga_ids)))
+    print("IDs only in IBM :", " ".join("0x%02x" % x for x in sorted(ibm_ids - sga_ids)) or "(none)")
+    print("IDs only in SGA :", " ".join("0x%02x" % x for x in sorted(sga_ids - ibm_ids)) or "(none)")
+    print("IDs in both     :", " ".join("0x%02x" % x for x in sorted(ibm_ids & sga_ids)))
     print()
 
     print("=" * 76)
-    print("ZAZNAMY V OBOU — kde se lisi obsah")
+    print("RECORDS IN BOTH - where the content differs")
     print("=" * 76)
     ibm_map, sga_map = {}, {}
     for o, i, l, b in out["IBM"]:
@@ -73,21 +73,21 @@ def main():
                 continue
             n = min(len(ib), len(sb))
             diffs = [k for k in range(n) if ib[k] != sb[k]]
-            # zaznamy, kde je rozdil jen v SAS adrese nebo serialu, oznacit
+            # flag records whose only difference is the SAS address or the serial
             tag = ""
             if b"\x50\x00\xc5\x00" in ib[:16] or b"ZA" in ib[:20]:
                 tag = "  (obsahuje SAS adresu / serial -> vazano na kus)"
-            print("\nID 0x%02x  len=0x%03x  IBM@0x%06x SGA@0x%06x  odlisnych bajtu: %d%s"
+            print("\nID 0x%02x  len=0x%03x  IBM@0x%06x SGA@0x%06x  differing bytes: %d%s"
                   % (rid, il, io, so, len(diffs), tag))
             print("   IBM: %s" % ib[:40].hex(" "))
             print("   SGA: %s" % sb[:40].hex(" "))
             if len(diffs) <= 12:
-                print("   pozice rozdilu (rel.): %s"
+                print("   difference offsets (rel.): %s"
                       % ", ".join("+%d (%02x->%02x)" % (k, sb[k], ib[k]) for k in diffs[:12]))
 
     print()
     print("=" * 76)
-    print("ZAZNAMY POUZE V IBM (jadro zamku)")
+    print("RECORDS ONLY IN IBM (the heart of the lock)")
     print("=" * 76)
     for o, i, l, b in out["IBM"]:
         if i in sga_ids:

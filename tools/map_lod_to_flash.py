@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Zjistit, jak se obsah LOD souboru mapuje na fyzicky dump SPI flash.
+"""Work out how the contents of a LOD file map onto a physical SPI flash dump.
 
-Bere kusy dat z LOD a hleda je v dumpu. Kdyz se najdou, spocita offset
-a overi, jestli je konstantni -> to dava mapovani.
+It takes chunks of data from the LOD and looks for them in the dump. When they
+are found it computes the offset and checks whether it stays constant -> that
+gives the mapping.
 """
 import sys, struct, os
 
@@ -17,7 +18,7 @@ DUMPS = {
 lod = open(LOD, "rb").read()
 dumps = {k: open(v, "rb").read() for k, v in DUMPS.items()}
 
-# artefakty zjistene parserem: (index, file_offset, size, type)
+# artifacts found by the parser: (index, file_offset, size, type)
 ARTIFACTS = [
     (2, 0x248,     0x10000, 0x53),
     (3, 0x10288,   0x9f000, 0x22),
@@ -40,12 +41,12 @@ def find_all(hay, needle, limit=5):
     return out
 
 print("=" * 78)
-print("HLEDANI OBSAHU LOD ARTEFAKTU V DUMPECH SPI FLASH")
+print("LOOKING FOR LOD ARTIFACT CONTENT IN THE SPI FLASH DUMPS")
 print("=" * 78)
 
 for idx, off, size, atype in ARTIFACTS:
     body = lod[off:off + size]
-    # vezmi vzorky z ruznych mist artefaktu, preskoc hlavicku a nulove bloky
+    # sample from various places in the artifact, skip the header and zero blocks
     samples = []
     for frac in (0.10, 0.30, 0.55, 0.80):
         p = int(size * frac)
@@ -54,7 +55,7 @@ for idx, off, size, atype in ARTIFACTS:
             samples.append((p, chunk))
     print("\nArtifact %d  type=0x%x  size=0x%x" % (idx, atype, size))
     if not samples:
-        print("   (same nulove/vyplnove bloky, preskakuji)")
+        print("   (all zero/padding blocks, skipping)")
         continue
     for name, d in dumps.items():
         hits = []
@@ -68,15 +69,15 @@ for idx, off, size, atype in ARTIFACTS:
                 deltas.setdefault(dl, 0)
                 deltas[dl] += 1
             best = sorted(deltas.items(), key=lambda kv: -kv[1])[:3]
-            print("   %-14s nalezeno %d shod, nejcastejsi posun: %s"
+            print("   %-14s found %d matches, most common offset: %s"
                   % (name, len(hits),
                      ", ".join("0x%x (%dx)" % (d_, c) for d_, c in best)))
         else:
-            print("   %-14s bez shody" % name)
+            print("   %-14s no match" % name)
 
 print()
 print("=" * 78)
-print("KDE SE IBM A SEAGATE DUMP LISI (bloky po 4 kB)")
+print("WHERE THE IBM AND SEAGATE DUMPS DIFFER (4 kB blocks)")
 print("=" * 78)
 a, b = dumps["ibm_6214"], dumps["seagate_000A"]
 blk = 4096
@@ -91,9 +92,9 @@ for i in range(0, min(len(a), len(b)), blk):
 if cur is not None:
     diffs.append((cur, min(len(a), len(b))))
 tot = sum(e - s for s, e in diffs)
-print("odlisnych oblasti: %d, celkem %d B (%.1f %% ze 4 MB)" % (len(diffs), tot, 100 * tot / len(a)))
+print("differing regions: %d, total %d B (%.1f %% of 4 MB)" % (len(diffs), tot, 100 * tot / len(a)))
 for s, e in diffs:
-    # kolik z toho neni vypln
+    # how much of that is not padding
     seg_a = a[s:e]
     nz = sum(1 for x in seg_a if x not in (0, 0xFF))
-    print("   0x%06x - 0x%06x  (%7d B)  uzitecnych v IBM: %d" % (s, e, e - s, nz))
+    print("   0x%06x - 0x%06x  (%7d B)  useful in IBM: %d" % (s, e, e - s, nz))

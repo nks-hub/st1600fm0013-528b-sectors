@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Rozebrat konfiguracni blok disku v SPI flash (~0x0e1000).
+"""Dissect the disk configuration block in SPI flash (~0x0e1000).
 
-Tam sedi model, serial, pocet bloku a nejspis i velikost sektoru.
-Cilem je zjistit, jestli je velikost sektoru ulozena jako data (tedy
-teoreticky prepsatelna) nebo jestli je zadratovana v kodu.
+Model, serial, block count and most likely the sector size live there.
+The goal is to find out whether the sector size is stored as data (and thus
+theoretically rewritable) or hard-wired in the code.
 """
 import os, re, struct, sys
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -24,19 +24,19 @@ def hexdump(b, base=0, width=16, maxlen=None):
     return "\n".join(out)
 
 print("=" * 78)
-print("IBM konfiguracni blok 0x0e1100 - 0x0e1300")
+print("IBM configuration block 0x0e1100 - 0x0e1300")
 print("=" * 78)
 print(hexdump(ibm[0x0e1100:0x0e1300], 0x0e1100))
 
 print()
 print("=" * 78)
-print("Okoli poctu bloku (0x0e169e) v IBM dumpu")
+print("Around the block count (0x0e169e) in the IBM dump")
 print("=" * 78)
 print(hexdump(ibm[0x0e1660:0x0e1720], 0x0e1660))
 
 print()
 print("=" * 78)
-print("HLEDANI VELIKOSTI SEKTORU v okoli konfigurace")
+print("SEARCHING FOR THE SECTOR SIZE around the configuration")
 print("=" * 78)
 # 528 = 0x210, 4224 = 0x1080
 for name, val, size in [("528", 528, 2), ("528", 528, 4), ("4224", 4224, 2), ("4224", 4224, 4)]:
@@ -55,11 +55,11 @@ for name, val, size in [("528", 528, 2), ("528", 528, 4), ("4224", 4224, 2), ("4
 
 print()
 print("=" * 78)
-print("SEAGATE 000A — stejna oblast, jak vypada jeho konfigurace")
+print("SEAGATE 000A - same region, what its configuration looks like")
 print("=" * 78)
-# najdi model string v seagate dumpu
+# find the model string in the Seagate dump
 i = sgA.find(b"ST200FM0133")
-print("  ST200FM0133 nalezen na: %s" % (("0x%06x" % i) if i >= 0 else "nenalezeno"))
+print("  ST200FM0133 found at: %s" % (("0x%06x" % i) if i >= 0 else "not found"))
 if i >= 0:
     lo = max(0, i - 0x400)
     print(hexdump(sgA[lo:i + 0x100], lo))

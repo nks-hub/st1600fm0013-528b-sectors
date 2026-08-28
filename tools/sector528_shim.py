@@ -1,16 +1,16 @@
-"""nbdkit plugin: zpristupni 528bajtovy SAS disk jako standardni 512bajtovy.
+"""nbdkit plugin: expose a 528-byte SAS disk as a standard 512-byte one.
 
-Kazdy fyzicky sektor ma 528 B = 512 B dat + 16 B metadat, ktera IBM pouziva
-pro svoji ochranu integrity. Linux s takovym blokem neumi pracovat, takze
-z kazdeho sektoru bereme prvnich 512 B a zbytek ignorujeme.
+Every physical sector is 528 B = 512 B of data + 16 B of metadata that IBM uses
+for its own integrity protection. Linux cannot work with such a block, so we
+take the first 512 B of each sector and ignore the rest.
 
-Mapovani je 1:1 na sektory, takze logicky blok N sedi na fyzicky sektor N.
-Cena je 16/528 = 3,03 % kapacity.
+The mapping is 1:1 on sectors, so logical block N sits on physical sector N.
+The price is 16/528 = 3.03 % of capacity.
 
-Cteni i zapis jde primo pres SCSI READ(10)/WRITE(10) na /dev/sgN,
-protoze blokove zarizeni /dev/sdX ma pri 528 B nulovou velikost.
+Both reads and writes go straight through SCSI READ(10)/WRITE(10) on /dev/sgN,
+because the /dev/sdX block device has zero size at 528 B.
 
-Spusteni:
+Running it:
     nbdkit -f -v python /cesta/sector528_shim.py device=/dev/sg2
     nbd-client localhost 10809 /dev/nbd0 -b 512
 """
@@ -28,18 +28,18 @@ SG_DXFER_FROM_DEV = -3
 SG_DXFER_TO_DEV = -2
 SG_FLAG_DIRECT_IO = 1
 
-PHYS_BS = 528          # skutecna velikost sektoru na disku
+PHYS_BS = 528          # the real sector size on the disk
 LOGICAL_BS = 512       # co ukazujeme ven
 
 # O kolik rezervovaneho bufferu zadame; kernel muze dat min (limituje ho
-# max_sectors_kb blokoveho zarizeni), takze skutecnou hodnotu si po nastaveni
+# max_sectors_kb of the block device), so the real value is read back after
 # precteme zpatky a MAX_BLOCKS dopocitame az z ni.
 RESERVED_WANT = 4 * 1024 * 1024
 
 device = None
 nsectors = 0
-MAX_BLOCKS = 60        # bezpecny vychozi strop (60*528 = 31,7 kB), prepise se
-_tls = threading.local()   # kazde vlakno ma vlastni fd, jinak by se SG_IO praly
+MAX_BLOCKS = 60        # safe default cap (60*528 = 31.7 kB), overwritten
+_tls = threading.local()   # each thread gets its own fd, or the SG_IO calls collide
 
 
 class SGIOHdr(ctypes.Structure):
@@ -70,7 +70,7 @@ class SGIOHdr(ctypes.Structure):
 
 
 def _get_fd():
-    """Vlastni file descriptor pro kazde vlakno + vetsi rezervovany buffer.
+    """A private file descriptor per thread plus a larger reserved buffer.
 
     Vychozich 32 kB v sg driveru je pri jednom SG_IO strop, ktery drzi
     propustnost kolem 130 MB/s bez ohledu na to, jak velky pozadavek prijde.
@@ -187,7 +187,7 @@ def block_size(h):
 
 
 def _strip(raw, n):
-    """Z n sektoru po 528 B vytahne prvnich 512 B kazdeho."""
+    """From n sectors of 528 B, extract the first 512 B of each."""
     out = bytearray(n * LOGICAL_BS)
     for i in range(n):
         out[i * LOGICAL_BS:(i + 1) * LOGICAL_BS] = raw[i * PHYS_BS:i * PHYS_BS + LOGICAL_BS]
@@ -219,7 +219,7 @@ def pwrite(h, buf, offset, flags=0):
         take = min(total - pos, n * LOGICAL_BS - skew)
 
         if skew == 0 and take == n * LOGICAL_BS:
-            # zarovnany zapis celych sektoru: metadata prepiseme nulami,
+            # aligned write of whole sectors: overwrite the metadata with zeros,
             # cist se predem nemusi
             raw = bytearray(n * PHYS_BS)
             for i in range(n):

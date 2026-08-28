@@ -1,82 +1,92 @@
-# IBM ST1600FM0013 — firmware, dumpy a co se o zámku ví
+# IBM ST1600FM0013 — firmware, dumps and what is known about the lock
 
-Archiv k pokusu odemknout IBM-branded Seagate SAS SSD, které jsou natvrdo zamčené
-na 528bajtové sektory a 6 Gb/s link.
+An archive of the attempt to unlock IBM-branded Seagate SAS SSDs that are hard
+locked to 528-byte sectors and a 6 Gb/s link.
 
-**Stav: 512 B VYŘEŠENO** kernel patchem — disk se v systému objeví jako nativní
-512bajtové blokové zařízení. Ověřeno v QEMU včetně křížové validace, podrobnosti
-v [`kernel-patch/VYSLEDEK.md`](kernel-patch/VYSLEDEK.md).
+*Czech version: [README_CZ.md](README_CZ.md)*
 
-**12 Gb/s zůstává nevyřešené** — ten limit je ve firmwaru disku. Jediná známá
-cesta je PC-3000 SAS s funkcí „odemknout mikroprogram", která umí nahrát
-firmware jiného vendora.
+**Status: 512 B SOLVED — two ways.**
+
+1. **Reformat.** Disks that are not Seagate-locked accept
+   `sg_format --size=512` outright: no capacity loss, stock kernel, full native
+   speed. Verified on an HGST unit — see
+   [`reformat-528-512.md`](reformat-528-512.md). **Try this first**; a
+   non-destructive probe tells you in a fraction of a second whether it will
+   work.
+2. **Kernel patch.** For disks that refuse the reformat. The disk then appears as
+   a native 512-byte block device at the cost of 16 bytes per sector. Verified in
+   QEMU including cross-validation — see
+   [`kernel-patch/RESULTS.md`](kernel-patch/RESULTS.md).
+
+**12 Gb/s remains unsolved** — that limit lives in the disk firmware. The only
+known route is PC-3000 SAS with its "unlock microprogram" function, which can
+load another vendor's firmware.
 
 ---
 
-## Naše disky
+## Our disks
 
 | | |
 |---|---|
-| Model | ST1600FM0013 (Seagate Nytro 1200.2, kódové jméno **Koho**) |
-| Hlásí se jako | `IBM-SSG` / `IBM-SSGSSVJ1P6` / firmware `6214` |
+| Model | ST1600FM0013 (Seagate Nytro 1200.2, codename **Koho**) |
+| Reports itself as | `IBM-SSG` / `IBM-SSGSSVJ1P6` / firmware `6214` |
 | IBM FRU | 02AM752, EC M09099 |
-| Part number | `1NT2L2-039` (základ `1NT2L2` = Seagate SED Mainstream Endurance) |
-| Kapacita | 1,6 TB, 3 030 911 576 × 528 B |
-| Datum výroby | říjen–listopad 2018 |
-| Kusů | 8, všechny zdravé (SMART OK, 0 vadných sektorů, 0–5 % opotřebení) |
-| Server | HPE CL2100 Gen10, HBA Broadcom SAS3216 v IT módu |
+| Part number | `1NT2L2-039` (base `1NT2L2` = Seagate SED Mainstream Endurance) |
+| Capacity | 1.6 TB, 3,030,911,576 × 528 B |
+| Manufactured | October–November 2018 |
+| Units | 8, all healthy (SMART OK, 0 bad sectors, 0–5 % wear) |
+| Server | HPE CL2100 Gen10, Broadcom SAS3216 HBA in IT mode |
 
 ---
 
-## Obsah adresáře
+## Directory contents
 
 ```
 dumps/
-  ibm_ST1600FM0013_6214.bin       4 MB   dump SPI flash z IBM disku (NÁŠ MODEL)
-  seagate_ST200FM0133_0007.bin    4 MB   dump z pravého Seagate Koho disku, fw 0007
-  seagate_ST200FM0133_000A.bin    4 MB   totéž po upgradu na fw 000A
+  ibm_ST1600FM0013_6214.bin       4 MB   SPI flash dump from an IBM disk (OUR MODEL)
+  seagate_ST200FM0133_0007.bin    4 MB   dump from a genuine Seagate Koho disk, fw 0007
+  seagate_ST200FM0133_000A.bin    4 MB   the same after upgrading to fw 000A
 
 official-lod/
-  12002SSD-Koho-SAS-0004.zip             oficiální Seagate balíček
+  12002SSD-Koho-SAS-0004.zip             official Seagate package
 
-reformat-528-512.md                      co projde a co ne pri reformatu na 512 B
-linkrate-6g-analyza.md                   proč disky jedou 6 Gb/s a co s tím udělá jiný backplane
-clanky-zadani.md                         zadani na blogovou serii z teto prace
+reformat-528-512.md                      what works and what does not when reformatting to 512 B
+linkrate-6g-analysis.md                  why the disks run at 6 Gb/s, and what a different backplane changes
+article-brief.md                         brief for a blog series based on this work
 
-hba/                                     řadič SAS3216 „9305-16i“: upgrade na P16.12
-  backup_fw_15.00.00.00.bin              záloha původního firmwaru karty (nenahraditelná)
-  backup_bios_08.35.00.00.rom            záloha option ROM
-  backup_mpb.bin                         výrobní blok se SAS adresou
-  muj_clone_P16.bin                      nahraný obraz P16.12 pro SAS3216 klon
-  README.md                              identifikace karty, postup, obnova
-  firmware/KohoSSD-SED-0004.LOD          SED varianta — jmenuje ST1600FM0013
+hba/                                     SAS3216 "9305-16i" controller: upgrade to P16.12
+  backup_fw_15.00.00.00.bin              backup of the card's original firmware (irreplaceable)
+  backup_bios_08.35.00.00.rom            option ROM backup
+  backup_mpb.bin                         manufacturing block with the SAS address
+  my_clone_P16.bin                       the flashed P16.12 image for the SAS3216 clone
+  README.md                              card identification, procedure, recovery
+  firmware/KohoSSD-SED-0004.LOD          SED variant — names ST1600FM0013
   firmware/KohoSSD-STD-0004.LOD          standard (base)
   firmware/KohoSSD-FIPS-0004.LOD         FIPS 140-2
-  linux cli tools/seaflashlin/           oficiální Seagate flasher pro Linux
-  READMEFIRST-...pdf                     instrukce + seznam podporovaných modelů
+  linux cli tools/seaflashlin/           official Seagate flasher for Linux
+  READMEFIRST-...pdf                     instructions + list of supported models
 
 tools/
-  hdd_firmware_tools/                    parser LOD souborů, větev ibm-wip
-  patch_ibm_lock.py                      patcher zámku (7 bajtů + checksum)
-  diff_config_records.py                 rozbor TLV záznamů, IBM vs Seagate
-  classify_regions.py                    klasifikace oblastí flash
-  map_lod_to_flash.py                    mapování LOD na dump
-  dump_config_block.py                   výpis konfiguračního bloku
+  hdd_firmware_tools/                    LOD file parser, branch ibm-wip
+  patch_ibm_lock.py                      lock patcher (7 bytes + checksum)
+  diff_config_records.py                 TLV record analysis, IBM vs Seagate
+  classify_regions.py                    flash region classification
+  map_lod_to_flash.py                    mapping LOD onto a dump
+  dump_config_block.py                   configuration block listing
   sector528_shim.py                      nbdkit plugin 528 -> 512 (userspace)
 
 kernel-patch/
-  wvg-sd-528.patch                       cizí patch sd driveru, PŮVOD NEZNÁMÝ
-  rebase_pve_528_patch.py                jeho rebase nástroj
-  apply_manual_hunks.py                  můj pokus doaplikovat odmítnuté hunky
-  PUVOD.md                               co o patchi víme
-  OVERENI.md                             proč ho zatím nelze použít
+  wvg-sd-528.patch                       third-party sd driver patch, PROVENANCE UNKNOWN
+  rebase_pve_528_patch.py                its rebase tool
+  apply_manual_hunks.py                  my attempt to apply the rejected hunks
+  ORIGIN.md                              what we know about the patch
+  VERIFICATION.md                        why it could not be used at first
+  RESULTS.md                             test results
 ```
 
-> **`kernel-patch/`** — patch původně cílil na API, které v upstream neexistuje
-> (viz `OVERENI.md`). Po doportování na 6.8 se přeložil a **funguje** — výsledky
-> testů v `VYSLEDEK.md`.
+Every document has a Czech counterpart with a `_CZ` suffix.
 
-### Kontrolní součty
+### Checksums
 
 ```
 ibm_ST1600FM0013_6214.bin
@@ -97,84 +107,92 @@ seagate_ST200FM0133_000A.bin
 
 ---
 
-## Odkud to je
+## Where it comes from
 
-**Dumpy SPI flash** pochází z vlákna
-[STH 4968, strana 28](https://forums.servethehome.com/index.php?threads/how-to-reformat-hdd-ssd-to-512b-sector-size.4968/page-28):
+**The SPI flash dumps** come from the thread
+[STH 4968, page 28](https://forums.servethehome.com/index.php?threads/how-to-reformat-hdd-ssd-to-512b-sector-size.4968/page-28):
 
-- `ibm_ST1600FM0013_6214.bin` — uživatel **Arslan109** (25. 9. 2025). Má stejný model jako my.
-  Rozebral disk, odpájel SPI čip horkovzdušnou pistolí a nechal ho vyčíst programátorem.
-  Původní jméno `ST1600FM0013.BIN`.
+- `ibm_ST1600FM0013_6214.bin` — user **Arslan109** (25 Sep 2025). Same model as
+  ours. They disassembled the disk, desoldered the SPI chip with a hot air gun
+  and had it read out with a programmer. Original name `ST1600FM0013.BIN`.
   [Google Drive](https://drive.google.com/file/d/1B8Z8wUzLMtlhvr3H_b23Bqouj3ITkssJ/view)
 
-- `seagate_ST200FM0133_*.bin` — uživatel **leromarinvit** (15. 11. 2025). Koupil nejlevnější
-  Koho disk s pravým Seagate firmwarem (ST200FM0133, 200 GB), dumpnul ho ve verzi 0007,
-  upgradoval na 000A a dumpnul znovu. Oba dumpy ověřil dvojím čtením.
+- `seagate_ST200FM0133_*.bin` — user **leromarinvit** (15 Nov 2025). They bought
+  the cheapest Koho disk with genuine Seagate firmware (ST200FM0133, 200 GB),
+  dumped it at version 0007, upgraded to 000A and dumped it again. Both dumps
+  were verified by reading twice.
   [0007](https://drive.google.com/file/d/1-AObmSgD2IyKm1C-16PRllbjSrCIhljv/view) ·
   [000A](https://drive.google.com/file/d/1u4K-T84_KGIM-bj80xM7GcKl1OGgVWK9/view)
 
-**Oficiální LOD balíček** z [touslesdrivers.com](https://www.touslesdrivers.com/index.php?v_page=23&v_code=48362),
-klasifikovaný jako „Official". Seagate ho vydal 18. 2. 2016, veřejně už ho nedistribuuje.
+**The official LOD package** from
+[touslesdrivers.com](https://www.touslesdrivers.com/index.php?v_page=23&v_code=48362),
+classified as "Official". Seagate released it on 18 Feb 2016 and no longer
+distributes it publicly.
 
-**Parser** — [eurecom-s3/hdd_firmware_tools](https://github.com/eurecom-s3/hdd_firmware_tools),
-zde ve [forku od leromarinvita, větev `ibm-wip`](https://github.com/leromarinvit/hdd_firmware_tools/tree/ibm-wip).
-Poslední commit: *„WIP: add artifact types found in Koho LOD"*.
+**The parser** — [eurecom-s3/hdd_firmware_tools](https://github.com/eurecom-s3/hdd_firmware_tools),
+here in [leromarinvit's fork, branch `ibm-wip`](https://github.com/leromarinvit/hdd_firmware_tools/tree/ibm-wip).
+Latest commit: *"WIP: add artifact types found in Koho LOD"*.
 
 ---
 
-## Co dumpy obsahují
+## What the dumps contain
 
-Všechny tři mají **přesně 4 194 304 B**, tedy plnou kapacitu čipu W25Q32 (32 Mbit).
-Využito je jen kolem 10 % — zbytek je `0x00` a `0xFF` výplň, entropie kolem 1,3.
+All three are **exactly 4,194,304 B**, the full capacity of a W25Q32 chip
+(32 Mbit). Only about 10 % is used — the rest is `0x00` and `0xFF` padding, with
+entropy around 1.3.
 
-| Dump | ST model uvnitř | IBM řetězce | Zmínky Seagate |
+| Dump | ST model inside | IBM strings | Seagate mentions |
 |---|---|---|---|
 | IBM 6214 | `ST1600FM0013` | `IBM-SSG`, `IBM-SSGSS`, `ZAL`, `SSVJ` | 0 |
-| Seagate 0007 | `ST200FM0133` | žádné | 2 |
-| Seagate 000A | `ST200FM0133` | žádné | 2 |
+| Seagate 0007 | `ST200FM0133` | none | 2 |
+| Seagate 000A | `ST200FM0133` | none | 2 |
 
-**Prvních 32 bajtů je u všech tří identických** (`f3 00 00 00 30 00 00 00 00 40 01 00 …`),
-takže jde o stejný formát.
+**The first 32 bytes are identical across all three**
+(`f3 00 00 00 30 00 00 00 00 40 01 00 …`), so the format is the same.
 
-Nejzajímavější je míra podobnosti:
+The degree of similarity is the interesting part:
 
 ```
-IBM 6214    vs Seagate 000A   →  89,7 % shodných bajtů
-Seagate 0007 vs Seagate 000A  →  80,0 % shodných bajtů
+IBM 6214     vs Seagate 000A   ->  89.7 % identical bytes
+Seagate 0007 vs Seagate 000A   ->  80.0 % identical bytes
 ```
 
-IBM firmware je tedy Seagate verzi **podobnější, než jsou si dvě verze Seagate firmwaru
-navzájem**. Naznačuje to, že IBM 6214 vychází z větve blízké 000A a rozdíly jsou
-soustředěné do konfigurace, ne do jádra.
+The IBM firmware is therefore **more similar to a Seagate version than two
+Seagate firmware versions are to each other**. That suggests IBM 6214 derives
+from a branch close to 000A, with the differences concentrated in configuration
+rather than in the core.
 
 ---
 
-## Co ten zámek dělá
+## What the lock does
 
-Firmware `6214` blokuje tři věci **jedním vendor-specific kódem** `ASC 0x26 / ASCQ 0x99`:
+Firmware `6214` blocks three things with **a single vendor-specific code**,
+`ASC 0x26 / ASCQ 0x99`:
 
-1. **Velikost sektoru.** MODE SELECT přijme jedinou hodnotu:
+1. **Sector size.** MODE SELECT accepts exactly one value:
    ```
-   512  → Illegal Request        520  → Illegal Request
-   524  → Illegal Request        528  → Good          ← jediná přijatá
-   4096 → Illegal Request
+   512  -> Illegal Request        520  -> Illegal Request
+   524  -> Illegal Request        528  -> Good          <- the only one accepted
+   4096 -> Illegal Request
    ```
-   Platí i pro LONGLBA variantu (24bajtový parameter list) a pro FORMAT UNIT
-   přes openSeaChest. Samotný `FORMAT UNIT` na stávající velikost přitom projde,
-   takže blokovaná je výhradně *změna*.
+   This holds for the LONGLBA variant (24-byte parameter list) too, and for
+   FORMAT UNIT via openSeaChest. A plain `FORMAT UNIT` to the current size does
+   go through, so it is exclusively the *change* that is blocked.
 
-2. **Rychlost linku.** Všech 8 disků hlásí `desc[33] = 0xaa` (programmed i hardware
-   max 6 Gb/s), a to i v továrních default hodnotách — přestože HBA nabízí 12 Gb/s
-   a štítek i Seagate manuál uvádějí 12 Gb/s. Pokus přepsat na `0xba` skončí na
-   stejném `ASC 0x26 / ASCQ 0x99`.
+2. **Link rate.** All 8 disks report `desc[33] = 0xaa` (both programmed and
+   hardware max 6 Gb/s), even at factory defaults — despite the HBA offering
+   12 Gb/s and both the label and the Seagate manual stating 12 Gb/s. An attempt
+   to overwrite it with `0xba` ends with the same `ASC 0x26 / ASCQ 0x99`.
 
-3. **Výměnu firmwaru.** Crossflash oficiálním `seaflashlin` s pravým podepsaným
-   `KohoSSD-SED-0004.LOD` končí po 22 segmentech na `sense_key=0x05`.
-   Zajímavé je, že STD image je odmítnut *okamžitě*, zatímco SED se dostane dál —
-   disk tedy uznal typ souboru a odmítl ho až na kontrole customer status.
+3. **Firmware replacement.** Crossflashing with the official `seaflashlin` and a
+   genuine signed `KohoSSD-SED-0004.LOD` ends after 22 segments with
+   `sense_key=0x05`. Interestingly, the STD image is rejected *immediately* while
+   the SED one gets further — so the disk did recognise the file type and only
+   refused it at the customer status check.
 
-Seagate manuál (100773817 Rev. D, sekce 6.7 „Authenticated firmware download")
-uvádí tři podmínky, které musí image splnit. Ta třetí je konec cesty:
+The Seagate manual (100773817 Rev. D, section 6.7 "Authenticated firmware
+download") lists three conditions an image must meet. The third one is the end of
+the road:
 
 > the download file must pass the acceptance criteria for the drive. For example it
 > must be applicable to the correct drive model, and have compatible revision and
@@ -182,106 +200,109 @@ uvádí tři podmínky, které musí image splnit. Ta třetí je konec cesty:
 
 ---
 
-## Co bylo vyzkoušeno a nefunguje
+## What was tried and does not work
 
-Vše ověřeno na našem disku (SN REDACTED-SN), disk je po všech pokusech nepoškozený.
+All verified on our own disk; the disk is undamaged after every attempt.
 
-| Cesta | Výsledek |
+| Route | Result |
 |---|---|
-| `sg_format --size=512` (i `--six`) | Invalid field in parameter list, byte 13 bit 7 |
-| `sg_raw` MODE SELECT, short LBA, 3 varianty num_blocks | totéž |
-| `sg_raw` MODE SELECT, **LONGLBA** (24 B param list) | totéž — 528 projde, 512 ne |
-| `openSeaChest --setSectorSize 512` | „not supported on this device" |
-| `openSeaChest --formatUnit` 512 / 520 / 524 / 4096 | „Format Unit Failed!" |
-| `seaflashlin -f SED-0004.LOD` (i `-u`, `-w`) | sense 0x05 po 22 segmentech |
-| `sg_write_buffer` mode 5 i mode 7 | ASC 0x26 / ASCQ 0x99 |
-| TCG PSID revert (ruční stack nad `sg_raw`) | session vrstva nereaguje — viz níže |
-| `sedutil-cli` | `Invalid or unsupported disk` (umí jen SATA/NVMe, ne SAS) |
+| `sg_format --size=512` (also `--six`) | Invalid field in parameter list, byte 13 bit 7 |
+| `sg_raw` MODE SELECT, short LBA, 3 num_blocks variants | the same |
+| `sg_raw` MODE SELECT, **LONGLBA** (24 B param list) | the same — 528 passes, 512 does not |
+| `openSeaChest --setSectorSize 512` | "not supported on this device" |
+| `openSeaChest --formatUnit` 512 / 520 / 524 / 4096 | "Format Unit Failed!" |
+| `seaflashlin -f SED-0004.LOD` (also `-u`, `-w`) | sense 0x05 after 22 segments |
+| `sg_write_buffer` mode 5 and mode 7 | ASC 0x26 / ASCQ 0x99 |
+| TCG PSID revert (hand-rolled stack over `sg_raw`) | session layer does not respond — see below |
+| `sedutil-cli` | `Invalid or unsupported disk` (SATA/NVMe only, not SAS) |
 
-### K TCG a PSID
+### On TCG and PSID
 
-Level 0 Discovery **funguje**, ale je potřeba správný CDB — alokační délka se udává
-v blocích, ne v bajtech:
+Level 0 Discovery **works**, but you need the right CDB — the allocation length
+is given in blocks, not bytes:
 
 ```
 sg_raw -r 512 -o out.bin /dev/sgN a2 01 00 01 80 00 00 00 00 01 00 00
-                                              ^^ INC_512=1      ^^ 1 blok
+                                              ^^ INC_512=1      ^^ 1 block
 ```
 
-Vrátí: Opal SSC v1.00, Base ComID `0x07FE`, Locking `Supported=1 Enabled=1 Locked=0`,
-MediaEncryption=1, block size 528.
+It returns: Opal SSC v1.00, Base ComID `0x07FE`, Locking
+`Supported=1 Enabled=1 Locked=0`, MediaEncryption=1, block size 528.
 
-Skutečná TCG session ale nefunguje. `SECURITY PROTOCOL OUT` vrací `Good`,
-`SECURITY PROTOCOL IN` vždy prázdný payload. Rozhodující test: poslal jsem 512 B
-čistého nesmyslu (`0xdeadbeef` dokola) na session ComID a disk odpověděl `Good` —
-neplatný packet musí skončit chybou, takže disk pakety **přijímá a zahazuje**.
+An actual TCG session does not work, though. `SECURITY PROTOCOL OUT` returns
+`Good`, `SECURITY PROTOCOL IN` always an empty payload. The decisive test: I sent
+512 B of pure nonsense (`0xdeadbeef` repeated) to the session ComID and the disk
+answered `Good` — an invalid packet has to end in an error, so the disk
+**accepts and discards** packets.
 
-Na výsledku to ale nic nemění: uživatel *sick1655* na STH testoval PSID revert
-na disku, kde mu sedutil normálně funguje, a hlásí, že *„sg_format po čerstvém
-PSID resetu skončí na stejném Invalid field in parameter list"*. **PSID revert
-velikost sektoru neodemkne.**
+It makes no difference to the outcome anyway: user *sick1655* on STH tested a
+PSID revert on a disk where sedutil works normally for them, and reports that
+*"sg_format after a fresh PSID reset ends with the same Invalid field in
+parameter list"*. **A PSID revert does not unlock the sector size.**
 
-PSID našich disků je vytištěný na etiketě, ve dvou řádcích po 16 znacích.
-Pro SN REDACTED-SN: `REDACTED-PSID`.
+The PSID of these disks is printed on the label, in two rows of 16 characters. It
+is a security credential for a factory reset of a SED drive — do not copy it
+anywhere.
 
 ---
 
-## Kde přesně zámek sedí (vlastní analýza, 28. 8. 2026)
+## Where exactly the lock sits (own analysis, 28 Aug 2026)
 
-Tohle komunita na STH neměla — leromarinvit hledal mapování LOD na flash a nedostal
-se sem. Skripty k reprodukci jsou v `tools/`.
+The community on STH did not have this — leromarinvit was looking for the LOD to
+flash mapping and did not get this far. Scripts to reproduce it are in `tools/`.
 
-### Mapování LOD → flash sedí
+### The LOD → flash mapping checks out
 
-Parser `seagate_fw_extract.py` na `KohoSSD-SED-0004.LOD` vypíše strukturu:
+The parser `seagate_fw_extract.py` on `KohoSSD-SED-0004.LOD` prints the
+structure:
 
 ```
-Artifact 3  type 0x22   0x9f000 B   Flash address = 0xfa0   ← hlavní kód
+Artifact 3  type 0x22   0x9f000 B   Flash address = 0xfa0   <- main code
 Artifact 5  type 0x9026 0xd0028 B   Flash address = 0x30
-Artifact 9  type 0x1a   0x180 B     ← podpis (384 B)
+Artifact 9  type 0x1a   0x180 B     <- signature (384 B)
 ```
 
-Obsah Artifactu 3 se v dumpech skutečně našel:
+The contents of Artifact 3 were indeed found in the dumps:
 
 ```
-seagate_000A → posun 0xe0fcc
-ibm_6214     → posun 0xe0fcc      ← STEJNÝ layout
-seagate_0007 → posun 0x10fcc      (starší verze, jiný layout)
+seagate_000A -> offset 0xe0fcc
+ibm_6214     -> offset 0xe0fcc      <- SAME layout
+seagate_0007 -> offset 0x10fcc      (older version, different layout)
 ```
 
-### Konfigurace disku je čitelná data
+### The disk configuration is readable data
 
-Na `0x0e1140` sedí obsah INQUIRY odpovědi uložený prostě jako text:
+At `0x0e1140` sits the content of the INQUIRY response, simply stored as text:
 
 ```
 IBM      9f 00 10 02  "IBM-SSG IBM-SSGSSVJ1P6  6214"  "ZAL15M5Q  216214"
 Seagate  8b 01 10 02  "SEAGATE ST200FM0133     000A"  "ZAJ15QQ0"
 ```
 
-Stejná struktura, jiný obsah.
+Same structure, different content.
 
-### Jádro zámku: 688 bajtů, které Seagate nemá vůbec
+### The heart of the lock: 688 bytes Seagate does not have at all
 
-Oblasti, kde má IBM data a Seagate čistou flash (`0xFF`):
+Regions where IBM has data and Seagate has blank flash (`0xFF`):
 
 ```
-0x0e1590 – 0x0e1820   656 B   ← hlavní blok
+0x0e1590 – 0x0e1820   656 B   <- main block
 0x0e1c70 – 0x0e1c80    16 B
 0x0e1f40 – 0x0e1f50    16 B
-                      688 B celkem
+                      688 B total
 ```
 
-Jsou to pojmenované konfigurační záznamy ve tvaru
-`[id:1][len:2][00 00][id:1][len-4:2][namelen:1][name][data]`. IBM přidal čtyři:
+They are named configuration records of the form
+`[id:1][len:2][00 00][id:1][len-4:2][namelen:1][name][data]`. IBM added four:
 
-| Offset | ID | Délka | Jméno |
+| Offset | ID | Length | Name |
 |---|---|---|---|
-| 0x0e15b8 | 0xc4 | 0x28 | (mezery) |
+| 0x0e15b8 | 0xc4 | 0x28 | (spaces) |
 | 0x0e15e4 | 0xc7 | 0xa0 | `SCDD` |
-| **0x0e1688** | **0xc8** | **0xd8** | **`AIX      `** ← zámek |
+| **0x0e1688** | **0xc8** | **0xd8** | **`AIX      `** ← the lock |
 | 0x0e1760 | 0xc9 | 0xac | `AIX      ` |
 
-Záznam `0xc8` nese block descriptor jako holá data:
+Record `0xc8` carries the block descriptor as plain data:
 
 ```
 0e1690  09 41 49 58 20 20 20 20 20 20 00 00 00 08 b4 a8
@@ -290,221 +311,232 @@ Záznam `0xc8` nese block descriptor jako holá data:
                             3030911576    528
 ```
 
-### Existuje i index záznamů
+### There is a record index too
 
 ```
-IBM      … c0 c1 c3 [c4 c7 c8 c9] d1 d2 00     21 položek
-Seagate  … c0 c1 c3               d1 d2 00     17 položek
+IBM      … c0 c1 c3 [c4 c7 c8 c9] d1 d2 00     21 entries
+Seagate  … c0 c1 c3               d1 d2 00     17 entries
 ```
 
-IBM má v katalogu navíc přesně ta čtyři ID.
+IBM has exactly those four extra IDs in its catalogue.
 
-### Hlavička konfiguračního bloku
+### Configuration block header
 
 ```
 0x0e1130   79 71 6e 49 | f0 06 | 79 9a | ff 00 a4 00 00 00 06 32    IBM
 0x0e1130   79 71 6e 49 | 60 04 | ab 93 | ff 00 90 00 00 00 06 12    Seagate
-           magic "yqnI"  délka   ?
+           magic "yqnI"  length  ?
                          1776 B
                          1120 B
 ```
 
-Rozdíl délek je **656 bajtů — přesně velikost hlavního IBM-only bloku**. To potvrzuje,
-že pole `f0 06` je délka konfigurační oblasti.
+The length difference is **656 bytes — exactly the size of the main IBM-only
+block**. That confirms the field `f0 06` is the length of the configuration area.
 
-### Checksum — rozluštěn
+### Checksum — cracked
 
-Pole `79 9a` / `ab 93` je kontrolní součet. Algoritmus pochází z rozboru LOD formátu
-na [hddguru](https://forum.hddguru.com/viewtopic.php?f=13&t=28252), kde je REXX funkce
-`GETSUMM`:
+The field `79 9a` / `ab 93` is a checksum. The algorithm comes from an analysis
+of the LOD format on
+[hddguru](https://forum.hddguru.com/viewtopic.php?f=13&t=28252), which contains a
+REXX function `GETSUMM`:
 
-> Sečti 16bitová **little-endian** slova přes celý blok **včetně pole checksumu**.
-> Výsledek musí být nula.
+> Sum 16-bit **little-endian** words across the whole block **including the
+> checksum field**. The result must be zero.
 
-Ověřeno na našich datech, sedí všude:
-
-```
-IBM konfig blok  @0x0e1130, délka 0x06f0  →  součet 0x0000  OK
-SGA konfig blok  @0x0e1130, délka 0x0460  →  součet 0x0000  OK
-všechny LOD hlavičky                      →  součet 0x0000  OK
-```
-
-### Patch: stačí sedm bajtů
-
-`tools/patch_ibm_lock.py` najde magic `yqnI`, přepíše block descriptor v AIX záznamu
-a dopočítá checksum:
+Verified against our data; it holds everywhere:
 
 ```
-python tools/patch_ibm_lock.py vlastni_dump.bin vystup.bin        --mode blocksize --blocks 3125627568
+IBM config block  @0x0e1130, length 0x06f0  ->  sum 0x0000  OK
+SGA config block  @0x0e1130, length 0x0460  ->  sum 0x0000  OK
+all LOD headers                             ->  sum 0x0000  OK
 ```
 
-Změní se sedm bajtů:
+### The patch: seven bytes are enough
+
+`tools/patch_ibm_lock.py` finds the magic `yqnI`, rewrites the block descriptor
+in the AIX record and recomputes the checksum:
 
 ```
-0x0e1136-0x0e1137   checksum        0x9a79 -> 0xad33
-0x0e169e-0x0e16a1   počet bloků     b4a80a58 -> ba47d3b0   (3 125 627 568)
-0x0e16a5            velikost sekt.  0x10 -> 0x00           (528 -> 512)
+python tools/patch_ibm_lock.py your_dump.bin output.bin --mode blocksize --blocks 3125627568
 ```
 
-Kapacita zůstává 1600,32 GB, přesně podle Seagate tabulky. Demonstrační výstupy
-jsou v `patched/` — vygenerované z cizího dumpu, slouží jen k ověření nástroje.
+Seven bytes change:
 
-### Dump musí být z vlastního disku
+```
+0x0e1136-0x0e1137   checksum      0x9a79 -> 0xad33
+0x0e169e-0x0e16a1   block count   b4a80a58 -> ba47d3b0   (3,125,627,568)
+0x0e16a5            sector size   0x10 -> 0x00           (528 -> 512)
+```
 
-Konfigurační blok obsahuje **sériové číslo a kalibraci konkrétního kusu**.
-Přiložený `ibm_ST1600FM0013_6214.bin` je od uživatele Arslan109 (SN `ZAL15M5Q`).
-Nahrát ho na náš disk by znamenalo přepsat jeho identitu cizí.
+Capacity stays at 1600.32 GB, exactly per the Seagate table. Demonstration
+outputs are in `patched/` — generated from a third-party dump, they serve only to
+verify the tool.
 
-Správný postup:
+### The dump has to come from your own disk
 
-1. odpájet `W25Q32FWZEIG` z vlastního disku
-2. vyčíst dump programátorem (CH341A)
-3. `patch_ibm_lock.py` na **vlastním** dumpu
-4. zapsat zpět
+The configuration block contains **the serial number and calibration of that
+specific unit**. The bundled `ibm_ST1600FM0013_6214.bin` belongs to user
+Arslan109 (SN `ZAL15M5Q`). Writing it to our disk would mean overwriting its
+identity with someone else's.
 
-### Co z toho plyne
+The correct procedure:
 
-**Zámek není v kódu firmwaru, ale v datovém konfiguračním záznamu**, a kontrolní součet
-k němu umíme dopočítat. Zbývá jediná neznámá: jestli firmware ověřuje konfigurační blok
-kromě checksumu ještě něčím dalším. To se dá zjistit jen zápisem.
+1. desolder the `W25Q32FWZEIG` from your own disk
+2. read the dump with a programmer (CH341A)
+3. run `patch_ibm_lock.py` on **your own** dump
+4. write it back
+
+### What follows from this
+
+**The lock is not in the firmware code but in a data configuration record**, and
+we can recompute the checksum for it. One unknown remains: whether the firmware
+validates the configuration block by anything beyond the checksum. That can only
+be established by writing.
 
 ---
 
-## Otevřená cesta: přeprogramovat SPI flash
+## The open route: reprogramming the SPI flash
 
-Jediné, co komunita ještě neuzavřela.
+The only thing the community has not closed out.
 
-**Čip:** `W25Q32FWZEIG`, pouzdro WSON-8 8×6 mm, na PCB poblíž SAS konektoru.
-Podle Arslana jde odpájet horkovzdušnou pistolí za třicet sekund. SOIC klipsy
-oba účastníci nedoporučují — lepší je čip sundat a použít socket adaptér.
-Programátor typu CH341A stačí.
+**The chip:** `W25Q32FWZEIG`, WSON-8 package 8×6 mm, on the PCB near the SAS
+connector. According to Arslan it comes off with a hot air gun in thirty seconds.
+Both participants advise against SOIC clips — better to take the chip off and use
+a socket adapter. A CH341A-class programmer is enough.
 
-**Co chybí:** pochopit formát LOD, aby šlo z oficiálního `KohoSSD-SED-0004.LOD`
-sestavit obraz flash. leromarinvit na tom pracuje ve větvi `ibm-wip`, ale
-mapování LOD na fyzický layout zatím nemá.
+**What is missing:** understanding the LOD format well enough to build a flash
+image from the official `KohoSSD-SED-0004.LOD`. leromarinvit is working on that
+in the `ibm-wip` branch, but does not yet have the LOD to physical layout
+mapping.
 
-**Zkratka, kterou nikdo nezkusil:** nahrát Seagate dump z `ST200FM0133` přímo
-na IBM disk. leromarinvit to sám navrhuje slovy *„with some luck, blindly flashing
-the Seagate dump to the IBM-branded drive might just work"*. Háček je jiná kapacita —
-200 GB vs 1,6 TB — takže konfigurace NAND se skoro jistě neshoduje. Rozumnější
-je nejdřív porovnat, které oblasti se mezi IBM a Seagate dumpem liší (10,3 %),
-a přenést jen konfigurační části.
+**A shortcut nobody has tried:** writing the Seagate dump from a `ST200FM0133`
+straight onto an IBM disk. leromarinvit suggests it themselves: *"with some luck,
+blindly flashing the Seagate dump to the IBM-branded drive might just work"*. The
+catch is the different capacity — 200 GB vs 1.6 TB — so the NAND configuration
+almost certainly does not match. A more sensible approach is to first compare
+which regions differ between the IBM and Seagate dumps (10.3 %) and transfer only
+the configuration parts.
 
-Data k tomu jsou v tomto adresáři kompletní: máme oficiální LOD, dump z IBM disku
-našeho modelu i dumpy z pravého Seagate disku ve dvou verzích. To je přesně
-kombinace, která leromarinvitovi chyběla.
-
----
-
-## Alternativy, pokud na hardware nedojde
-
-1. **Nasadit disky tam, kde je 528 B nativní** — IBM Storwize, FlashSystem, DS8880.
-   Plná kapacita, plný výkon, nulová práce.
-2. **Shim přes NBD/iSCSI**, který mapuje 512B logické bloky na 528B fyzické.
-   Funguje principiálně, ale je to trvalá režie a nestandardní provoz.
-3. **Prodat.** Osm zdravých 1,6TB SAS SSD má u majitelů IBM polí plnou hodnotu,
-   protože tam je 528 B žádaná vlastnost, ne vada.
-
-Pro Proxmox platí, že 528bajtový disk neuvidí LVM, ext4, XFS ani ZFS — standardní
-block layer s ním nepracuje.
+The data for that is complete in this directory: we have the official LOD, a dump
+from an IBM disk of our model, and dumps from a genuine Seagate disk in two
+versions. That is exactly the combination leromarinvit was missing.
 
 ---
 
-## Kapacita po případné konverzi
+## Alternatives, if the hardware route never happens
 
-Dobrá zpráva: **nic by se neztratilo.** Podle Seagate manuálu, tabulka 3 pro
-1600GB model:
+1. **Deploy the disks where 528 B is native** — IBM Storwize, FlashSystem,
+   DS8880. Full capacity, full performance, zero work.
+2. **A shim over NBD/iSCSI** mapping 512B logical blocks onto 528B physical ones.
+   It works in principle, but it is permanent overhead and non-standard
+   operation.
+3. **Sell them.** Eight healthy 1.6 TB SAS SSDs are worth full price to owners of
+   IBM arrays, because there 528 B is a desirable property, not a defect.
+
+For Proxmox, note that LVM, ext4, XFS and ZFS will not see a 528-byte disk — the
+standard block layer does not work with it.
+
+---
+
+## Capacity after a possible conversion
+
+The good news: **nothing would be lost.** Per the Seagate manual, table 3 for the
+1600 GB model:
 
 ```
-dnes:  3 030 911 576 × 528 B = 1 600 321 312 128 B
-512 B: 3 125 627 568 × 512 B = 1 600 321 314 816 B
+today: 3,030,911,576 × 528 B = 1,600,321,312,128 B
+512 B: 3,125,627,568 × 512 B = 1,600,321,314,816 B
                               ────────────────────
-rozdíl:            +2 688 B na disk  (0,0000 %)
+difference:        +2,688 B per disk  (0.0000 %)
 ```
 
-IBM drží plný nominál 1,6 TB i s 528bajtovými sektory — 16 bajtů metadat na sektor
-bere z interní rezervy, ne z uživatelské kapacity.
+IBM keeps the full nominal 1.6 TB even with 528-byte sectors — the 16 metadata
+bytes per sector come out of internal reserve, not user capacity.
 
 ---
 
-## Odkazy
+## Links
 
-- [STH 4968 — How to reformat HDD & SSD to 512B Sector Size](https://forums.servethehome.com/index.php?threads/how-to-reformat-hdd-ssd-to-512b-sector-size.4968/) (29 stran)
-- [STH 26945 — Changing block size IBM branded Micron S650DC-800 SSD](https://forums.servethehome.com/index.php?threads/changing-block-size-ibm-branded-micron-s650dc-800-ssd.26945/) (91 příspěvků, 2019–2025)
-- [hddguru — analýza formátu LOD](https://forum.hddguru.com/viewtopic.php?f=13&t=28252)
+- [STH 4968 — How to reformat HDD & SSD to 512B Sector Size](https://forums.servethehome.com/index.php?threads/how-to-reformat-hdd-ssd-to-512b-sector-size.4968/) (29 pages)
+- [STH 26945 — Changing block size IBM branded Micron S650DC-800 SSD](https://forums.servethehome.com/index.php?threads/changing-block-size-ibm-branded-micron-s650dc-800-ssd.26945/) (91 posts, 2019–2025)
+- [hddguru — analysis of the LOD format](https://forum.hddguru.com/viewtopic.php?f=13&t=28252)
 - [Seagate 1200.2 SAS SSD Product Manual 100773817 Rev. D](https://www.seagate.com/content/dam/seagate/migrated-assets/www-content/product-content/ssd-fam/1200-ssd/en-us/docs/1200-2-sas-ssd-product-manual-100773817d.pdf)
-- [Mattiwatti/sedutil](https://github.com/Mattiwatti/sedutil) — fork se SHA512, funguje na NetApp
+- [Mattiwatti/sedutil](https://github.com/Mattiwatti/sedutil) — fork with SHA512, works on NetApp
 
-### Které značky jdou reformátovat
+### Which brands can be reformatted
 
-| Funguje | Nefunguje |
+| Works | Does not work |
 |---|---|
-| NetApp, EMC, Dell, Toshiba, HPE, Huawei, Micron (ne-IBM) | **IBM branded** — Seagate i Micron, zvlášť SED |
+| NetApp, EMC, Dell, Toshiba, HPE, Huawei, Micron (non-IBM) | **IBM branded** — Seagate and Micron alike, SED especially |
 
-Selhalo to i na originálním IBM Power8/Power9 s `iprconfig` a pod AIX. IBM dokumentace
-k tomu navíc uvádí „JBOD is not supported on SSDs".
-
----
-
-*Sestaveno 28. 8. 2026. Měřeno na živém disku, ne převzato z fór — s výjimkou
-samotných dumpů a citovaných cizích zkušeností, které jsou označené jménem autora.*
+It failed even on genuine IBM Power8/Power9 with `iprconfig` and under AIX. IBM
+documentation additionally states "JBOD is not supported on SSDs".
 
 ---
 
-# Postup: přeprogramování SPI flash
+*Compiled 28 Aug 2026. Measured on a live disk, not taken from forums — with the
+exception of the dumps themselves and quoted third-party experience, which are
+attributed by author name.*
 
-Zapsáno pro případ, že se objeví programátor. Softwarová cesta je vyčerpaná
-(viz níže), tohle je jediná ověřená možnost.
+---
 
-## Co je potřeba
+# Procedure: reprogramming the SPI flash
 
-| Položka | Poznámka | Orientační cena |
+Written down in case a programmer turns up. The software route is exhausted (see
+above); this is the only verified possibility.
+
+## What you need
+
+| Item | Note | Approx. price |
 |---|---|---|
-| SPI programátor CH341A | USB, verze **3,3 V** (černá deska; zelená dává 5 V a čip zničí) | 150–250 Kč |
-| Adaptér WSON-8 / DFN-8 → DIP | pro `W25Q32FWZEIG`, pouzdro 8×6 mm | 100–200 Kč |
-| Horkovzdušná pistole | na odpájení čipu | — |
-| Tavidlo, cín, pinzeta | — | — |
+| CH341A SPI programmer | USB, the **3.3 V** version (black board; the green one supplies 5 V and destroys the chip) | €6–10 |
+| WSON-8 / DFN-8 → DIP adapter | for `W25Q32FWZEIG`, 8×6 mm package | €4–8 |
+| Hot air gun | for desoldering the chip | — |
+| Flux, solder, tweezers | — | — |
 
-SOIC klips **nedoporučuji** — oba lidé, kteří to na fóru dělali, se shodli,
-že s ním dump nevyjde spolehlivě a čip stejně museli sundat.
+A SOIC clip is **not recommended** — both people who did this on the forum agreed
+that the dump does not come out reliably with one and they had to remove the chip
+anyway.
 
-## Postup
+## Procedure
 
-**1. Identifikace disku**
+**1. Identify the disk**
 
-Než cokoli rozebereš, poznač si sériové číslo. Disk ve slotu 7 rozblikáš takto:
+Before taking anything apart, note the serial number. You can make the disk in a
+given slot blink like this:
 
 ```bash
 timeout 2 sg_dd if=/dev/sgN bs=528 count=200000 of=/dev/null; sleep 1
 ```
 
-Čtení musí jít přes `/dev/sgN`, ne přes `/dev/sdX` — blokové zařízení má
-nulovou velikost, takže přes něj I/O neproteče.
+The read has to go through `/dev/sgN`, not `/dev/sdX` — the block device has zero
+size, so no I/O flows through it.
 
-**2. Rozebrání a odpájení**
+**2. Disassembly and desoldering**
 
-Čip `W25Q32FWZEIG` je na PCB poblíž SAS konektoru, pouzdro WSON-8 8×6 mm.
-Horkovzdušnou pistolí jde dolů za pár desítek sekund. Poznač si orientaci
-(tečka = pin 1).
+The `W25Q32FWZEIG` chip is on the PCB near the SAS connector, WSON-8 package
+8×6 mm. A hot air gun takes it off in a few tens of seconds. Note the orientation
+(dot = pin 1).
 
-**3. Dump — a hned dvakrát**
+**3. Dump — twice, immediately**
 
 ```bash
 flashrom -p ch341a_spi -r dump1.bin
 flashrom -p ch341a_spi -r dump2.bin
-sha256sum dump1.bin dump2.bin      # MUSÍ se shodovat
+sha256sum dump1.bin dump2.bin      # MUST match
 ```
 
-Když se hashe liší, je špatný kontakt. Neopravuj to softwarově, opakuj čtení.
+If the hashes differ, the contact is bad. Do not fix it in software, repeat the
+read.
 
-**4. Ověření, že dump dává smysl**
+**4. Verify the dump makes sense**
 
 ```bash
 python tools/patch_ibm_lock.py dump1.bin /dev/null 2>&1 | head -5
 ```
 
-Musí vypsat `soucet=0x0000 OK` a INQUIRY s **tvým** sériovým číslem.
-Když součet nesedí, dump je poškozený.
+It must print `sum=0x0000 OK` and an INQUIRY with **your** serial number. If the
+sum does not check out, the dump is corrupt.
 
 **5. Patch**
 
@@ -513,35 +545,39 @@ python tools/patch_ibm_lock.py dump1.bin patched.bin \
        --mode blocksize --blocks 3125627568
 ```
 
-Změní se sedm bajtů a checksum se dopočítá. Nástroj sám ověří, že součet
-vyšel nula, a vypíše, které offsety změnil.
+Seven bytes change and the checksum is recomputed. The tool verifies for itself
+that the sum came out zero and prints which offsets it changed.
 
-**6. Zápis a verifikace**
+**6. Write and verify**
 
 ```bash
 flashrom -p ch341a_spi -w patched.bin -V
 flashrom -p ch341a_spi -r verify.bin
-sha256sum patched.bin verify.bin   # MUSÍ se shodovat
+sha256sum patched.bin verify.bin   # MUST match
 ```
 
-**7. Zpět a test**
+**7. Back in and test**
 
-Zapájet, zapojit, a zkontrolovat:
+Solder it back, plug it in, and check:
 
 ```bash
-sg_readcap -l /dev/sgN      # čekáme 512 B a 3 125 627 568 bloků
-sg_inq /dev/sgN             # INQUIRY by mělo zůstat IBM-SSG / 6214
+sg_readcap -l /dev/sgN      # expect 512 B and 3,125,627,568 blocks
+sg_inq /dev/sgN             # INQUIRY should stay IBM-SSG / 6214
 ```
 
-## Co se může pokazit
+## What can go wrong
 
-- **Firmware ověřuje konfigurační blok ještě podpisem.** Checksum umíme,
-  podpis by byl problém. Nedá se zjistit jinak než zápisem — ale původní
-  dump máš, takže se dá vrátit.
-- **Špatný dump kvůli kontaktu.** Proto se čte dvakrát a porovnává.
-- **Přehřátí čipu.** Horkovzdušná pistole na rozumnou teplotu, ne naplno.
-- **Zápis cizího dumpu.** Konfigurační blok nese sériové číslo a kalibraci
-  konkrétního kusu. Nikdy nepoužívej `dumps/ibm_ST1600FM0013_6214.bin` —
-  je od cizího disku (SN `ZAL15M5Q`).
+- **The firmware validates the configuration block with a signature as well.** We
+  can do the checksum; a signature would be a problem. There is no way to find
+  out other than by writing — but you have the original dump, so it can be
+  reverted.
+- **A bad dump due to poor contact.** That is why you read twice and compare.
+- **Overheating the chip.** Hot air gun at a sensible temperature, not full
+  blast.
+- **Writing someone else's dump.** The configuration block carries the serial
+  number and calibration of a specific unit. Never use
+  `dumps/ibm_ST1600FM0013_6214.bin` — it belongs to a different disk
+  (SN `ZAL15M5Q`).
 
-Původní dump si schovej. Dokud ho máš, je celá operace vratná.
+Keep the original dump. As long as you have it, the whole operation is
+reversible.

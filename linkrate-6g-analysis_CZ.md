@@ -1,6 +1,6 @@
 # Proč disky jedou 6 Gb/s a co s tím udělá jiný backplane
 
-Rozbor tvrzení z 28. 8. 2026. Měřeno na test-server, disk `IBM-SSG IBM-SSGSSVJ1P6`
+Rozbor tvrzení z 28. 8. 2026. Měřeno na testovacím serveru, disk `IBM-SSG IBM-SSGSSVJ1P6`
 (fw 6214), řadič SAS3216 klon po upgradu na P16.12.
 
 ## Tvrzení
@@ -21,8 +21,8 @@ relative target port id = 1
   number of phys = 1, phy identifier = 0
     negotiated logical link rate: 6 Gbps
     reason: loss of dword synchronization
-    SAS address          = 0x5000c500REDACTEDf9
-    attached SAS address = 0x500062b2REDACTED80   (HBA, phy 4)
+    SAS address          = 0x5000c500…ff9
+    attached SAS address = 0x500062b2…780   (HBA, phy 4)
     Invalid DWORD count = 27   Running disparity error count = 26
     Loss of DWORD synchronization count = 8   Phy reset problem count = 487
 
@@ -30,7 +30,7 @@ relative target port id = 2
   number of phys = 1, phy identifier = 1
     attached SAS device type: no device attached
     negotiated logical link rate: phy enabled; unknown rate
-    SAS address          = 0x5000c500REDACTEDfa
+    SAS address          = 0x5000c500…ffa
     attached SAS address = 0x0
     všechny čítače = 0
 ```
@@ -45,10 +45,10 @@ Rozhodující je stránka 19h/01h „Phy control and discover", kterou hlásí s
 ```
 >> Phy control and discover (SAS), page_control: current
  00     d9 01 00 64 00 06 02 02  00 00 00 00 11 4a 0e 00
- 10     50 00 c5 00 bb 35 1f f9  50 00 62 b2 04 4f a7 80
+ 10     50 00 c5 00 xx xx 1f f9  50 00 62 b2 xx xx a7 80
  20     04 41 00 00 00 00 00 00  88 aa 00 00 00 00 00 00
  30     00 00 00 00 00 00 00 00  00 01 00 00 00 00 00 00
- 40     50 00 c5 00 bb 35 1f fa  00 00 00 00 00 00 00 00
+ 40     50 00 c5 00 xx xx 1f fa  00 00 00 00 00 00 00 00
  50     00 00 00 00 00 00 00 00  88 aa 00 00 00 00 00 00
 ```
 

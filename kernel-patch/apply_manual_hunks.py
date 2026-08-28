@@ -1,31 +1,31 @@
 #!/usr/bin/env python3
-"""Doaplikovat tri hunky, ktere na vanilla 6.8 nesedely, a prelozit je na 6.8 API.
+"""Apply the three hunks that did not fit vanilla 6.8, translating them to its API.
 
-Patch wvg-sd-528 cili na strom, kde `sd_revalidate_disk()` pracuje s
-`struct queue_limits *lim` alokovanou pres kmalloc. To v upstream neexistuje
-(overeno pro 6.8 az 6.14) - do 6.10 tam queue_limits nejsou vubec, od 6.11 je
-to lokalni promenna na zasobniku.
+The wvg-sd-528 patch targets a tree where `sd_revalidate_disk()` works with a
+`struct queue_limits *lim` allocated via kmalloc. That does not exist upstream
+(verified for 6.8 through 6.14) - up to 6.10 there are no queue_limits there at
+all, and from 6.11 it is a local variable on the stack.
 
-Ve 6.8 se limity nastavuji primo do `q->limits`, takze hunk 10 se da prelozit
-mechanicky. Hunk 9 je jen vlozeni volani na jine misto teze funkce. Hunk 1 je
-na API nezavisly - je to blok globalnich promennych a pomocnych funkci.
+In 6.8 the limits are set directly in `q->limits`, so hunk 10 can be translated
+mechanically. Hunk 9 is just a call inserted at a different place in the same
+function. Hunk 1 is API-independent - it is a block of globals and helpers.
 
-  hunk 1  globalni promenne, module_param a emulacni infrastruktura
-  hunk 9  volani sd_528_limit_queue_depth() v sd_revalidate_disk()
-  hunk 10 omezeni max_dev_sectors, kdyz je emulace aktivni  -> prepsano na q->limits
+  hunk 1  globals, module_param and the emulation infrastructure
+  hunk 9  the sd_528_limit_queue_depth() call in sd_revalidate_disk()
+  hunk 10 cap on max_dev_sectors while emulation is active -> rewritten to q->limits
 
-Pouziti: python3 apply_manual_hunks.py <kernel-tree>
+Usage: python3 apply_manual_hunks.py <kernel-tree>
 """
 import re
 import sys
 from pathlib import Path
 
-# --- kotvy ve vanilla 6.8 -------------------------------------------------
+# --- anchors in vanilla 6.8 ----------------------------------------------
 ANCHOR_GLOBALS = "static struct lock_class_key sd_bio_compl_lkclass;"
 ANCHOR_HUNK9 = "\tbuffer = kmalloc(SD_BUF_SIZE, GFP_KERNEL);"
 ANCHOR_HUNK10 = "\tq->limits.max_dev_sectors = logical_to_sectors(sdp, dev_max);"
 
-# hunk 10 prelozeny z lim-> na q->limits.
+# hunk 10 translated from lim-> to q->limits.
 HUNK10_68 = """
 	if (sdkp->emulate_512_from_528) {
 		unsigned int emu_cap = sd_528_effective_max_sectors();
@@ -47,7 +47,7 @@ def split_hunks(rej_text):
 def insert_after(text, anchor, payload, what):
     idx = text.find(anchor)
     if idx < 0:
-        raise SystemExit("kotva nenalezena (%s): %r" % (what, anchor[:70]))
+        raise SystemExit("anchor not found (%s): %r" % (what, anchor[:70]))
     end = idx + len(anchor)
     return text[:end] + "\n" + payload + text[end:]
 
@@ -55,7 +55,7 @@ def insert_after(text, anchor, payload, what):
 def insert_before(text, anchor, payload, what):
     idx = text.find(anchor)
     if idx < 0:
-        raise SystemExit("kotva nenalezena (%s): %r" % (what, anchor[:70]))
+        raise SystemExit("anchor not found (%s): %r" % (what, anchor[:70]))
     return text[:idx] + payload + "\n" + text[idx:]
 
 
@@ -66,13 +66,13 @@ def main():
 
     text = sd_c.read_text()
     hunks = split_hunks(rej.read_text())
-    print("odmitnutych hunku v .rej: %d" % len(hunks))
+    print("rejected hunks in .rej: %d" % len(hunks))
 
     for hdr, body in hunks:
-        # --- hunk 1: globalni promenne + infrastruktura -------------------
+        # --- hunk 1: globals + infrastructure ------------------------------
         if hdr.startswith("@@ -114,"):
             if "static mempool_t *sd_528_page_pool;" in text:
-                print("  hunk 1  : jiz aplikovan")
+                print("  hunk 1  : already applied")
                 continue
             pre, post, seen_lock = [], [], False
             for ln in body.split("\n"):
@@ -83,32 +83,32 @@ def main():
                     (post if seen_lock else pre).append(ln[1:])
             text = insert_before(text, ANCHOR_GLOBALS, "\n".join(pre), "hunk1-pre")
             text = insert_after(text, ANCHOR_GLOBALS, "\n".join(post), "hunk1-post")
-            print("  hunk 1  : vlozeno %d radku pred a %d za kotvou" % (len(pre), len(post)))
+            print("  hunk 1  : inserted %d lines before and %d after the anchor" % (len(pre), len(post)))
 
-        # --- hunk 9: volani limitu fronty ---------------------------------
+        # --- hunk 9: queue limit call --------------------------------------
         elif hdr.startswith("@@ -3740,"):
             if "sd_528_limit_queue_depth(sdkp);" in text:
-                print("  hunk 9  : jiz aplikovan")
+                print("  hunk 9  : already applied")
                 continue
             text = insert_before(text, ANCHOR_HUNK9,
                                  "\tsd_528_limit_queue_depth(sdkp);\n", "hunk9")
-            print("  hunk 9  : vlozeno volani sd_528_limit_queue_depth()")
+            print("  hunk 9  : inserted the sd_528_limit_queue_depth() call")
 
-        # --- hunk 10: strop velikosti pozadavku ---------------------------
+        # --- hunk 10: request size cap -------------------------------------
         elif hdr.startswith("@@ -3809,"):
             if "sd_528_effective_max_sectors()" in text:
-                print("  hunk 10 : jiz aplikovan")
+                print("  hunk 10 : already applied")
                 continue
             text = insert_after(text, ANCHOR_HUNK10, HUNK10_68.strip("\n"), "hunk10")
-            print("  hunk 10 : vlozeno omezeni max_dev_sectors (prelozeno na q->limits)")
+            print("  hunk 10 : inserted the max_dev_sectors cap (translated to q->limits)")
 
         else:
-            print("  neznamy hunk %s - preskakuji" % hdr.strip())
+            print("  unknown hunk %s - skipping" % hdr.strip())
 
     sd_c.write_text(text)
-    print("zapsano %s (%d radku)" % (sd_c, text.count("\n")))
+    print("wrote %s (%d lines)" % (sd_c, text.count("\n")))
 
-    print("\nkontrola symbolu:")
+    print("\nsymbol check:")
     ok = True
     for sym in ("static mempool_t *sd_528_page_pool;",
                 "sd_emulate_512_from_fat_sectors",
@@ -117,15 +117,15 @@ def main():
                 "sd_528_segments_to_sectors"):
         present = sym in text
         ok = ok and present
-        print("  %-38s %s" % (sym, "OK" if present else "CHYBI"))
+        print("  %-38s %s" % (sym, "OK" if present else "MISSING"))
 
-    # zbyla nekde reference na neexistujici lim-> ?
+    # any leftover reference to a non-existent lim-> ?
     leftovers = re.findall(r"lim->[a-z_]+", text)
     if leftovers:
-        print("\n  POZOR, zbyly reference na lim->: %s" % sorted(set(leftovers)))
+        print("\n  WARNING, leftover references to lim->: %s" % sorted(set(leftovers)))
         ok = False
 
-    print("\n%s" % ("vse na miste" if ok else "necо chybi, prelozit se to nemusi"))
+    print("\n%s" % ("all in place" if ok else "something is missing, it may not compile"))
 
 
 if __name__ == "__main__":

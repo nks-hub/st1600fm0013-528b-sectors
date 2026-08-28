@@ -2,6 +2,11 @@
 
 Datum: 28. 8. 2026
 
+> **Přečti si nejdřív tohle:** pokud disk přijme obyčejný `sg_format --size=512`,
+> jdi tou cestou — žádná ztráta kapacity, standardní kernel, plná nativní
+> rychlost. Viz [../reformat-528-512_CZ.md](../reformat-528-512_CZ.md). Tenhle
+> patch je pro disky, které reformát odmítnou.
+
 ## Závěr
 
 Patch `wvg-sd-528`, doportovaný na kernel 6.8, **funguje**. Disk se 528bajtovými
@@ -118,8 +123,7 @@ Správně se kontroluje `emu_cap`.
 
 ## Nasazení na fyzický stroj
 
-Server bootuje PXE z netbootxyz (LXC 117 na PVE, netboot-host, nginx nad
-`/var/www/html`). Vzor menu položky je v `live-ubuntu.ipxe`:
+Server bootuje PXE z netbootxyz (kontejner s nginx). Vzor menu položky je v `live-ubuntu.ipxe`:
 
 ```
 kernel ${kernel_url}vmlinuz ip=dhcp boot=casper netboot=url url=${squash_url} \

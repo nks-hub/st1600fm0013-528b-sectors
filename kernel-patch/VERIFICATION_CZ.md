@@ -2,6 +2,10 @@
 
 Datum: 28. 8. 2026
 
+> **Pozdější vývoj:** problémy popsané níže se podařilo odstranit a patch nakonec
+> běží. Viz [RESULTS_CZ.md](RESULTS_CZ.md). Tenhle dokument je snímek z fáze
+> posuzování, ještě před doportováním na API 6.8.
+
 ## Závěr napřed
 
 **Patch cílí na API, které v žádném upstream kernelu neexistuje.** Nelze ho

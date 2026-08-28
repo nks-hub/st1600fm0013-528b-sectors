@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Doladit patch wvg-sd-528 na API kernelu 6.8.
+"""Adapt the wvg-sd-528 patch to the kernel 6.8 API.
 
-Patch pocita se stromem, kde se limity fronty predavaji jako
-`struct queue_limits *lim`. Ve 6.8 zadne takove API neni - limity se nastavuji
-bud primo do `q->limits`, nebo pres `blk_queue_*` helpery.
+The patch assumes a tree where queue limits are passed around as
+`struct queue_limits *lim`. No such API exists in 6.8 - limits are set either
+directly in `q->limits` or through the `blk_queue_*` helpers.
 
-Skript opravi dve mista:
+The script fixes two places:
 
-  1. `sd_disable_advanced_block_ops()` bere `lim` a saha na `lim->max_*`.
-     Prepiseme signaturu na `struct scsi_disk *sdkp` a telo na 6.8 helpery.
-  2. Hunk 10 (strop `max_dev_sectors` pri aktivni emulaci) doplnime za
-     `q->limits.max_dev_sectors = ...` v `sd_revalidate_disk()`.
+  1. `sd_disable_advanced_block_ops()` takes `lim` and touches `lim->max_*`.
+     Rewrite the signature to `struct scsi_disk *sdkp` and the body to 6.8
+     helpers.
+  2. Hunk 10 (cap on `max_dev_sectors` while emulation is active) is inserted
+     after `q->limits.max_dev_sectors = ...` in `sd_revalidate_disk()`.
 """
 import re
 import sys
@@ -75,16 +76,16 @@ def main():
     text = sd_c.read_text()
     changed = []
 
-    # --- 1) prepis funkce na 6.8 API ------------------------------------
+    # --- 1) rewrite the function for the 6.8 API ------------------------
     if OLD_FN in text:
         text = text.replace(OLD_FN, NEW_FN)
         changed.append("sd_disable_advanced_block_ops -> 6.8 API")
     elif "static void sd_disable_advanced_block_ops(struct scsi_disk *sdkp)" in text:
-        changed.append("sd_disable_advanced_block_ops jiz prepsana")
+        changed.append("sd_disable_advanced_block_ops already rewritten")
     else:
-        print("VAROVANI: funkce sd_disable_advanced_block_ops nenalezena v ocekavanem tvaru")
+        print("WARNING: sd_disable_advanced_block_ops not found in the expected form")
 
-    # volajici mista: odstranit druhy argument
+    # call sites: drop the second argument
     calls = re.findall(r"sd_disable_advanced_block_ops\(([^)]*)\)", text)
     fixed_calls = 0
     def fix_call(m):
@@ -96,28 +97,28 @@ def main():
         return m.group(0)
     text = re.sub(r"sd_disable_advanced_block_ops\(([^)]*)\)", fix_call, text)
     if fixed_calls:
-        changed.append("upraveno %d volani (odstranen argument lim)" % fixed_calls)
+        changed.append("adjusted %d call site(s) (removed the lim argument)" % fixed_calls)
 
     # --- 2) hunk 10 ------------------------------------------------------
     if "emu_cap" in text:
-        changed.append("hunk 10 jiz aplikovan")
+        changed.append("hunk 10 already applied")
     else:
         idx = text.find(ANCHOR10)
         if idx < 0:
-            print("CHYBA: kotva pro hunk 10 nenalezena")
+            print("ERROR: anchor for hunk 10 not found")
         else:
             end = idx + len(ANCHOR10)
             text = text[:end] + "\n" + HUNK10.strip("\n") + text[end:]
-            changed.append("hunk 10 vlozen za q->limits.max_dev_sectors")
+            changed.append("hunk 10 inserted after q->limits.max_dev_sectors")
 
     sd_c.write_text(text)
     for c in changed:
         print("  %s" % c)
 
     leftovers = sorted(set(re.findall(r"lim->[a-z_]+", text)))
-    print("\n  zbyle reference na lim->: %s" % (leftovers if leftovers else "zadne"))
-    print("  emu_cap v souboru: %dx" % text.count("emu_cap"))
-    print("  radku celkem: %d" % text.count("\n"))
+    print("\n  remaining references to lim->: %s" % (leftovers if leftovers else "none"))
+    print("  emu_cap occurrences in file: %dx" % text.count("emu_cap"))
+    print("  total lines: %d" % text.count("\n"))
 
 
 if __name__ == "__main__":
