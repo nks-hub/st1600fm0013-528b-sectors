@@ -1,4 +1,4 @@
-# IBM ST1600FM0013 — firmware, dumps and what is known about the lock
+# IBM ST1600FM0013: firmware, dumps and what is known about the lock
 
 An archive of the attempt to unlock IBM-branded Seagate SAS SSDs that are hard
 locked to 528-byte sectors and a 6 Gb/s link.
@@ -9,16 +9,16 @@ locked to 528-byte sectors and a 6 Gb/s link.
 
 1. **Reformat.** Disks that are not Seagate-locked accept
    `sg_format --size=512` outright: no capacity loss, stock kernel, full native
-   speed. Verified on an HGST unit — see
+   speed. Verified on an HGST unit, see
    [`reformat-528-512.md`](reformat-528-512.md). **Try this first**; a
    non-destructive probe tells you in a fraction of a second whether it will
    work.
 2. **Kernel patch.** For disks that refuse the reformat. The disk then appears as
    a native 512-byte block device at the cost of 16 bytes per sector. Verified in
-   QEMU including cross-validation — see
+   QEMU including cross-validation, see
    [`kernel-patch/RESULTS.md`](kernel-patch/RESULTS.md).
 
-**12 Gb/s remains unsolved** — that limit lives in the disk firmware. The only
+**12 Gb/s remains unsolved**. That limit lives in the disk firmware. The only
 known route is PC-3000 SAS with its "unlock microprogram" function, which can
 load another vendor's firmware.
 
@@ -59,7 +59,7 @@ hba/                                     SAS3216 "9305-16i" controller: upgrade 
   my_clone_P16.bin                       the flashed P16.12 image for the SAS3216 clone
   (sas3flash, sas3ircu and backup_mpb.bin are deliberately NOT in the repo)
   README.md                              card identification, procedure, recovery
-  firmware/KohoSSD-SED-0004.LOD          SED variant — names ST1600FM0013
+  firmware/KohoSSD-SED-0004.LOD          SED variant, names ST1600FM0013
   firmware/KohoSSD-STD-0004.LOD          standard (base)
   firmware/KohoSSD-FIPS-0004.LOD         FIPS 140-2
   linux cli tools/seaflashlin/           official Seagate flasher for Linux
@@ -111,12 +111,12 @@ seagate_ST200FM0133_000A.bin
 **The SPI flash dumps** come from the thread
 [STH 4968, page 28](https://forums.servethehome.com/index.php?threads/how-to-reformat-hdd-ssd-to-512b-sector-size.4968/page-28):
 
-- `ibm_ST1600FM0013_6214.bin` — user **Arslan109** (25 Sep 2025). Same model as
+- `ibm_ST1600FM0013_6214.bin`, from user **Arslan109** (25 Sep 2025). Same model as
   ours. They disassembled the disk, desoldered the SPI chip with a hot air gun
   and had it read out with a programmer. Original name `ST1600FM0013.BIN`.
   [Google Drive](https://drive.google.com/file/d/1B8Z8wUzLMtlhvr3H_b23Bqouj3ITkssJ/view)
 
-- `seagate_ST200FM0133_*.bin` — user **leromarinvit** (15 Nov 2025). They bought
+- `seagate_ST200FM0133_*.bin`, from user **leromarinvit** (15 Nov 2025). They bought
   the cheapest Koho disk with genuine Seagate firmware (ST200FM0133, 200 GB),
   dumped it at version 0007, upgraded to 000A and dumped it again. Both dumps
   were verified by reading twice.
@@ -128,7 +128,7 @@ seagate_ST200FM0133_000A.bin
 classified as "Official". Seagate released it on 18 Feb 2016 and no longer
 distributes it publicly.
 
-**The parser** — [eurecom-s3/hdd_firmware_tools](https://github.com/eurecom-s3/hdd_firmware_tools),
+**The parser**: [eurecom-s3/hdd_firmware_tools](https://github.com/eurecom-s3/hdd_firmware_tools),
 here in [leromarinvit's fork, branch `ibm-wip`](https://github.com/leromarinvit/hdd_firmware_tools/tree/ibm-wip).
 Latest commit: *"WIP: add artifact types found in Koho LOD"*.
 
@@ -137,7 +137,7 @@ Latest commit: *"WIP: add artifact types found in Koho LOD"*.
 ## What the dumps contain
 
 All three are **exactly 4,194,304 B**, the full capacity of a W25Q32 chip
-(32 Mbit). Only about 10 % is used — the rest is `0x00` and `0xFF` padding, with
+(32 Mbit). Only about 10 % is used; the rest is `0x00` and `0xFF` padding, with
 entropy around 1.3.
 
 | Dump | ST model inside | IBM strings | Seagate mentions |
@@ -179,14 +179,14 @@ Firmware `6214` blocks three things with **a single vendor-specific code**,
    go through, so it is exclusively the *change* that is blocked.
 
 2. **Link rate.** All 8 disks report `desc[33] = 0xaa` (both programmed and
-   hardware max 6 Gb/s), even at factory defaults — despite the HBA offering
+   hardware max 6 Gb/s), even at factory defaults, despite the HBA offering
    12 Gb/s and both the label and the Seagate manual stating 12 Gb/s. An attempt
    to overwrite it with `0xba` ends with the same `ASC 0x26 / ASCQ 0x99`.
 
 3. **Firmware replacement.** Crossflashing with the official `seaflashlin` and a
    genuine signed `KohoSSD-SED-0004.LOD` ends after 22 segments with
    `sense_key=0x05`. Interestingly, the STD image is rejected *immediately* while
-   the SED one gets further — so the disk did recognise the file type and only
+   the SED one gets further, so the disk did recognise the file type and only
    refused it at the customer status check.
 
 The Seagate manual (100773817 Rev. D, section 6.7 "Authenticated firmware
@@ -207,17 +207,17 @@ All verified on our own disk; the disk is undamaged after every attempt.
 |---|---|
 | `sg_format --size=512` (also `--six`) | Invalid field in parameter list, byte 13 bit 7 |
 | `sg_raw` MODE SELECT, short LBA, 3 num_blocks variants | the same |
-| `sg_raw` MODE SELECT, **LONGLBA** (24 B param list) | the same — 528 passes, 512 does not |
+| `sg_raw` MODE SELECT, **LONGLBA** (24 B param list) | the same; 528 passes, 512 does not |
 | `openSeaChest --setSectorSize 512` | "not supported on this device" |
 | `openSeaChest --formatUnit` 512 / 520 / 524 / 4096 | "Format Unit Failed!" |
 | `seaflashlin -f SED-0004.LOD` (also `-u`, `-w`) | sense 0x05 after 22 segments |
 | `sg_write_buffer` mode 5 and mode 7 | ASC 0x26 / ASCQ 0x99 |
-| TCG PSID revert (hand-rolled stack over `sg_raw`) | session layer does not respond — see below |
+| TCG PSID revert (hand-rolled stack over `sg_raw`) | session layer does not respond, see below |
 | `sedutil-cli` | `Invalid or unsupported disk` (SATA/NVMe only, not SAS) |
 
 ### On TCG and PSID
 
-Level 0 Discovery **works**, but you need the right CDB — the allocation length
+Level 0 Discovery **works**, but you need the right CDB: the allocation length
 is given in blocks, not bytes:
 
 ```
@@ -231,7 +231,7 @@ It returns: Opal SSC v1.00, Base ComID `0x07FE`, Locking
 An actual TCG session does not work, though. `SECURITY PROTOCOL OUT` returns
 `Good`, `SECURITY PROTOCOL IN` always an empty payload. The decisive test: I sent
 512 B of pure nonsense (`0xdeadbeef` repeated) to the session ComID and the disk
-answered `Good` — an invalid packet has to end in an error, so the disk
+answered `Good`. An invalid packet has to end in an error, so the disk
 **accepts and discards** packets.
 
 It makes no difference to the outcome anyway: user *sick1655* on STH tested a
@@ -240,14 +240,14 @@ PSID revert on a disk where sedutil works normally for them, and reports that
 parameter list"*. **A PSID revert does not unlock the sector size.**
 
 The PSID of these disks is printed on the label, in two rows of 16 characters. It
-is a security credential for a factory reset of a SED drive — do not copy it
+is a security credential for a factory reset of a SED drive, so do not copy it
 anywhere.
 
 ---
 
 ## Where exactly the lock sits (own analysis, 28 Aug 2026)
 
-The community on STH did not have this — leromarinvit was looking for the LOD to
+The community on STH did not have this; leromarinvit was looking for the LOD to
 flash mapping and did not get this far. Scripts to reproduce it are in `tools/`.
 
 ### The LOD → flash mapping checks out
@@ -329,10 +329,10 @@ IBM has exactly those four extra IDs in its catalogue.
                          1120 B
 ```
 
-The length difference is **656 bytes — exactly the size of the main IBM-only
+The length difference is **656 bytes, exactly the size of the main IBM-only
 block**. That confirms the field `f0 06` is the length of the configuration area.
 
-### Checksum — cracked
+### Checksum: cracked
 
 The field `79 9a` / `ab 93` is a checksum. The algorithm comes from an analysis
 of the LOD format on
@@ -368,7 +368,7 @@ Seven bytes change:
 ```
 
 Capacity stays at 1600.32 GB, exactly per the Seagate table. Demonstration
-outputs are in `patched/` — generated from a third-party dump, they serve only to
+outputs are in `patched/`, generated from a third-party dump, they serve only to
 verify the tool.
 
 ### The dump has to come from your own disk
@@ -400,7 +400,7 @@ The only thing the community has not closed out.
 
 **The chip:** `W25Q32FWZEIG`, WSON-8 package 8×6 mm, on the PCB near the SAS
 connector. According to Arslan it comes off with a hot air gun in thirty seconds.
-Both participants advise against SOIC clips — better to take the chip off and use
+Both participants advise against SOIC clips; better to take the chip off and use
 a socket adapter. A CH341A-class programmer is enough.
 
 **What is missing:** understanding the LOD format well enough to build a flash
@@ -411,7 +411,7 @@ mapping.
 **A shortcut nobody has tried:** writing the Seagate dump from a `ST200FM0133`
 straight onto an IBM disk. leromarinvit suggests it themselves: *"with some luck,
 blindly flashing the Seagate dump to the IBM-branded drive might just work"*. The
-catch is the different capacity — 200 GB vs 1.6 TB — so the NAND configuration
+catch is the different capacity, 200 GB vs 1.6 TB, so the NAND configuration
 almost certainly does not match. A more sensible approach is to first compare
 which regions differ between the IBM and Seagate dumps (10.3 %) and transfer only
 the configuration parts.
@@ -424,7 +424,7 @@ versions. That is exactly the combination leromarinvit was missing.
 
 ## Alternatives, if the hardware route never happens
 
-1. **Deploy the disks where 528 B is native** — IBM Storwize, FlashSystem,
+1. **Deploy the disks where 528 B is native**: IBM Storwize, FlashSystem,
    DS8880. Full capacity, full performance, zero work.
 2. **A shim over NBD/iSCSI** mapping 512B logical blocks onto 528B physical ones.
    It works in principle, but it is permanent overhead and non-standard
@@ -432,7 +432,7 @@ versions. That is exactly the combination leromarinvit was missing.
 3. **Sell them.** Eight healthy 1.6 TB SAS SSDs are worth full price to owners of
    IBM arrays, because there 528 B is a desirable property, not a defect.
 
-For Proxmox, note that LVM, ext4, XFS and ZFS will not see a 528-byte disk — the
+For Proxmox, note that LVM, ext4, XFS and ZFS will not see a 528-byte disk; the
 standard block layer does not work with it.
 
 ---
@@ -449,31 +449,31 @@ today: 3,030,911,576 × 528 B = 1,600,321,312,128 B
 difference:        +2,688 B per disk  (0.0000 %)
 ```
 
-IBM keeps the full nominal 1.6 TB even with 528-byte sectors — the 16 metadata
+IBM keeps the full nominal 1.6 TB even with 528-byte sectors; the 16 metadata
 bytes per sector come out of internal reserve, not user capacity.
 
 ---
 
 ## Links
 
-- [STH 4968 — How to reformat HDD & SSD to 512B Sector Size](https://forums.servethehome.com/index.php?threads/how-to-reformat-hdd-ssd-to-512b-sector-size.4968/) (29 pages)
-- [STH 26945 — Changing block size IBM branded Micron S650DC-800 SSD](https://forums.servethehome.com/index.php?threads/changing-block-size-ibm-branded-micron-s650dc-800-ssd.26945/) (91 posts, 2019–2025)
-- [hddguru — analysis of the LOD format](https://forum.hddguru.com/viewtopic.php?f=13&t=28252)
+- [STH 4968: How to reformat HDD & SSD to 512B Sector Size](https://forums.servethehome.com/index.php?threads/how-to-reformat-hdd-ssd-to-512b-sector-size.4968/) (29 pages)
+- [STH 26945: Changing block size IBM branded Micron S650DC-800 SSD](https://forums.servethehome.com/index.php?threads/changing-block-size-ibm-branded-micron-s650dc-800-ssd.26945/) (91 posts, 2019–2025)
+- [hddguru: analysis of the LOD format](https://forum.hddguru.com/viewtopic.php?f=13&t=28252)
 - [Seagate 1200.2 SAS SSD Product Manual 100773817 Rev. D](https://www.seagate.com/content/dam/seagate/migrated-assets/www-content/product-content/ssd-fam/1200-ssd/en-us/docs/1200-2-sas-ssd-product-manual-100773817d.pdf)
-- [Mattiwatti/sedutil](https://github.com/Mattiwatti/sedutil) — fork with SHA512, works on NetApp
+- [Mattiwatti/sedutil](https://github.com/Mattiwatti/sedutil), a fork with SHA512, works on NetApp
 
 ### Which brands can be reformatted
 
 | Works | Does not work |
 |---|---|
-| NetApp, EMC, Dell, Toshiba, HPE, Huawei, Micron (non-IBM) | **IBM branded** — Seagate and Micron alike, SED especially |
+| NetApp, EMC, Dell, Toshiba, HPE, Huawei, Micron (non-IBM) | **IBM branded**: Seagate and Micron alike, SED especially |
 
 It failed even on genuine IBM Power8/Power9 with `iprconfig` and under AIX. IBM
 documentation additionally states "JBOD is not supported on SSDs".
 
 ---
 
-*Compiled 28 Aug 2026. Measured on a live disk, not taken from forums — with the
+*Compiled 28 Aug 2026. Measured on a live disk, not taken from forums, with the
 exception of the dumps themselves and quoted third-party experience, which are
 attributed by author name.*
 
@@ -490,10 +490,10 @@ above); this is the only verified possibility.
 |---|---|---|
 | CH341A SPI programmer | USB, the **3.3 V** version (black board; the green one supplies 5 V and destroys the chip) | €6–10 |
 | WSON-8 / DFN-8 → DIP adapter | for `W25Q32FWZEIG`, 8×6 mm package | €4–8 |
-| Hot air gun | for desoldering the chip | — |
-| Flux, solder, tweezers | — | — |
+| Hot air gun | for desoldering the chip | |
+| Flux, solder, tweezers | | |
 
-A SOIC clip is **not recommended** — both people who did this on the forum agreed
+A SOIC clip is **not recommended**. Both people who did this on the forum agreed
 that the dump does not come out reliably with one and they had to remove the chip
 anyway.
 
@@ -508,7 +508,7 @@ given slot blink like this:
 timeout 2 sg_dd if=/dev/sgN bs=528 count=200000 of=/dev/null; sleep 1
 ```
 
-The read has to go through `/dev/sgN`, not `/dev/sdX` — the block device has zero
+The read has to go through `/dev/sgN`, not `/dev/sdX`, because the block device has zero
 size, so no I/O flows through it.
 
 **2. Disassembly and desoldering**
@@ -517,7 +517,7 @@ The `W25Q32FWZEIG` chip is on the PCB near the SAS connector, WSON-8 package
 8×6 mm. A hot air gun takes it off in a few tens of seconds. Note the orientation
 (dot = pin 1).
 
-**3. Dump — twice, immediately**
+**3. Dump it twice, immediately**
 
 ```bash
 flashrom -p ch341a_spi -r dump1.bin
@@ -568,14 +568,14 @@ sg_inq /dev/sgN             # INQUIRY should stay IBM-SSG / 6214
 
 - **The firmware validates the configuration block with a signature as well.** We
   can do the checksum; a signature would be a problem. There is no way to find
-  out other than by writing — but you have the original dump, so it can be
+  out other than by writing, but you have the original dump, so it can be
   reverted.
 - **A bad dump due to poor contact.** That is why you read twice and compare.
 - **Overheating the chip.** Hot air gun at a sensible temperature, not full
   blast.
 - **Writing someone else's dump.** The configuration block carries the serial
   number and calibration of a specific unit. Never use
-  `dumps/ibm_ST1600FM0013_6214.bin` — it belongs to a different disk
+  `dumps/ibm_ST1600FM0013_6214.bin`, which belongs to a different disk
   (SN `ZAL15M5Q`).
 
 Keep the original dump. As long as you have it, the whole operation is

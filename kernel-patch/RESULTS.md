@@ -1,9 +1,9 @@
-# The kernel patch works — a 528B disk as a native 512B one
+# The kernel patch works: a 528B disk as a native 512B one
 
 Date: 28 Aug 2026
 
 > **Read this first:** if your disk accepts a plain `sg_format --size=512`, take
-> that route instead — no capacity loss, stock kernel, full native speed. See
+> that route instead: no capacity loss, stock kernel, full native speed. See
 > [../reformat-528-512.md](../reformat-528-512.md). This patch is for disks that
 > refuse the reformat.
 
@@ -22,7 +22,7 @@ and the kernel can do nothing about it.
 ## How it was tested without a reboot
 
 The host could not be rebooted, so testing happened in QEMU with SCSI
-passthrough — the VM gets direct access to the physical disk while the host runs
+passthrough. The VM gets direct access to the physical disk while the host runs
 untouched:
 
 ```bash
@@ -109,7 +109,7 @@ The finished `arch/x86/boot/bzImage` is 13,492,736 B.
 ## What had to be fixed in the patch
 
 The patch targets a tree where queue limits are passed as
-`struct queue_limits *lim`. That does not exist upstream — verified for 6.8
+`struct queue_limits *lim`. That does not exist upstream, verified for 6.8
 through 6.14.
 
 | Location | Fix |
@@ -119,7 +119,7 @@ through 6.14.
 | Hunk 10 | `lim->max_dev_sectors` → `q->limits.max_dev_sectors`, `lim->max_segments` → `q->limits.max_segments` |
 
 A trap I fell into twice: the check
-`if "sd_528_effective_max_sectors" in text` is a false positive — that symbol
+`if "sd_528_effective_max_sectors" in text` is a false positive, because that symbol
 arrives with hunk 1, so hunk 10 looked done when it was not. The correct thing
 to check is `emu_cap`.
 
@@ -136,7 +136,7 @@ initrd ${kernel_url}initrd
 
 It is enough to upload `bzImage` and add an entry with
 `sd_mod.emulate_512_from_fat_sectors=1` on the cmdline. Because it is a live
-boot, a failed boot is fixed by a plain restart — nothing can break permanently.
+boot, a failed boot is fixed by a plain restart, so nothing can break permanently.
 
 ## Before this touches real data
 
@@ -148,6 +148,6 @@ The tests above passed, but they were short. Before production use:
 - verify the behaviour of a power loss in the middle of a write.
 
 The emulation discards 16 bytes of metadata that the IBM firmware uses for its
-own integrity checking. The disk will no longer look consistent to it — which
+own integrity checking. The disk will no longer look consistent to it, which
 does not matter for us (we use it as an ordinary block device), but such a disk
 has no business going back into an IBM array.

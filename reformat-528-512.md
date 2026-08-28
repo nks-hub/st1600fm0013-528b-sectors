@@ -20,10 +20,10 @@ saved and the medium is not touched. Bytes 7–8 = parameter length `0x0010`.
 | Disk | Manufacturer | Result |
 |---|---|---|
 | IBM-SSG **HSPX400** 400 GB | HGST (OUI `5000cca`) | `SCSI Status: Good` |
-| IBM-SSG **IBM-SSGSSVJ1P6** 1.6 TB | Seagate | `Illegal Request — Invalid field in parameter list` |
+| IBM-SSG **IBM-SSGSSVJ1P6** 1.6 TB | Seagate | `Illegal Request, Invalid field in parameter list` |
 
 The probe takes a fraction of a second and destroys nothing. **It is the first
-thing worth running on such a disk** — it tells you in advance whether you need
+thing worth running on such a disk**: it tells you in advance whether you need
 to bother with a kernel patch or SPI flash, or whether `sg_format` will do.
 
 ## No capacity is lost
@@ -38,7 +38,7 @@ after:  781,422,768 × 512 B = 400,088,457,216 B
 ```
 
 A difference of 1,152 bytes, i.e. nothing. The same conclusion came out for the
-Seagate from its own format table — 1.600 TB either way.
+Seagate from its own format table: 1.600 TB either way.
 
 ## Fast format exists, but does not save the day
 
@@ -58,7 +58,7 @@ format for.**
 ## Aborting a format is safe
 
 Verified in practice. The `sg_format` process has to be terminated by its
-specific PID, looked up beforehand — terminating by process name would take down
+specific PID, looked up beforehand; terminating by process name would take down
 everything else sharing that name. Then reset the device:
 
 ```bash
@@ -67,7 +67,7 @@ sg_reset --target /dev/sdX
 ```
 
 The disk then reports `Sense key: Medium Error, Additional sense: Medium format
-corrupted`. It looks alarming, but it is an expected and recoverable state — just
+corrupted`. It looks alarming, but it is an expected and recoverable state: just
 run FORMAT UNIT again. Interestingly, the block length change to 512 already
 showed up in the block descriptor after that aborted format.
 
@@ -82,7 +82,7 @@ sg_requests --progress /dev/sdX
 ```
 
 Only estimate the remaining time after ~5 minutes of running. A sample from the
-first 150 s produced an estimate of 2 hours; the reality was 42 minutes — the
+first 150 s produced an estimate of 2 hours; the reality was 42 minutes. The
 ramp-up is non-linear.
 
 ## Result: done and verified

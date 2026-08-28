@@ -58,7 +58,7 @@ hba/                                     řadič SAS3216 „9305-16i“: upgrade
   my_clone_P16.bin                       nahraný obraz P16.12 pro SAS3216 klon
   (sas3flash, sas3ircu ani backup_mpb.bin v repu záměrně NEJSOU)
   README_CZ.md                           identifikace karty, postup, obnova
-  firmware/KohoSSD-SED-0004.LOD          SED varianta — jmenuje ST1600FM0013
+  firmware/KohoSSD-SED-0004.LOD          SED varianta – jmenuje ST1600FM0013
   firmware/KohoSSD-STD-0004.LOD          standard (base)
   firmware/KohoSSD-FIPS-0004.LOD         FIPS 140-2
   linux cli tools/seaflashlin/           oficiální Seagate flasher pro Linux

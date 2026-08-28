@@ -36,7 +36,7 @@ relative target port id = 2
     all counters = 0
 ```
 
-Port B is enabled but nothing leads to it — `attached SAS address = 0x0` and
+Port B is enabled but nothing leads to it: `attached SAS address = 0x0` and
 zeroed counters. Single-port backplane confirmed.
 
 ## Points 3 and 4 do not hold
@@ -75,7 +75,7 @@ second-link argument: even if port B were wired up, it would also run at
 6 Gb/s. This is not a property of the wiring, it sits in the disk firmware.
 
 On top of that, SAS negotiates the rate per phy, independently. A second port
-never raises the rate of the first link — it provides redundancy and aggregate
+never raises the rate of the first link; it provides redundancy and aggregate
 bandwidth, not a faster single connection.
 
 The controller offers 12 Gb/s all along:
@@ -90,13 +90,13 @@ The ceiling is unambiguously on the disk side, not the HBA and not the cabling.
 
 Point 4 also contradicts point 3: if some disks manage 12G on single SAS, then
 single SAS is not the cause. The conclusion "but not these ones" is factually
-right but for the wrong reason — it is not because of the backplane, it is
+right but for the wrong reason. It is not because of the backplane, it is
 because the disk firmware declares 6 Gb/s as its hardware maximum.
 
 ## Connection to the sector lock
 
 An attempt to write a programmed maximum of 12 G (`0xB`) ended with
-`ASC 0x26 / ASCQ 0x99` — the same vendor-specific code with which the disk
+`ASC 0x26 / ASCQ 0x99`, the same vendor-specific code with which the disk
 refuses a sector size change from 528 to 512. It is one and the same lock in the
 IBM firmware. The disk label meanwhile says 12Gb/s SAS, so the silicon can do
 12 G; it just reports otherwise.
@@ -142,4 +142,4 @@ sg_modes -p 0x19,1 -H /dev/sdX    # raw bytes for manual decoding
 ```
 
 The first `sg_modes` after a hotplug fails with `Unit Attention` (mode parameters
-changed) — just call it twice.
+changed). Just call it twice.

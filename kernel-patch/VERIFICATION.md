@@ -43,7 +43,7 @@ and hunk 10 works with `lim->max_dev_sectors`, that is, with a **pointer**.
 
 Reality differs. Up to and including 6.10 there are no `queue_limits` there at
 all. From 6.11 `struct queue_limits lim;` does exist, but as a **local variable
-on the stack** — it is accessed with a dot (`lim.max_dev_sectors`), not an
+on the stack**: it is accessed with a dot (`lim.max_dev_sectors`), not an
 arrow, and it is never allocated via `kmalloc`.
 
 ## How the application went
@@ -55,7 +55,7 @@ sd.c   10 of 13 hunks applied, 3 failed (#1, #9, #10)
 sd.h    3 of 3 applied
 ```
 
-The ten hunks applied only because `patch` tolerates offset and fuzz — they are
+The ten hunks applied only because `patch` tolerates offset and fuzz. They are
 small insertions into functions that have not changed since. The three that
 failed are at places where the code has diverged substantially.
 
@@ -71,7 +71,7 @@ The script looks for a function shape it could not find in the tree.
 
 Taken together:
 
-- the patch has **no header at all** — no author, no `Signed-off-by`, no
+- the patch has **no header at all**: no author, no `Signed-off-by`, no
   copyright, no SPDX,
 - its identifiers (`emulate_512_from_fat_sectors`, `sd_528_emulation`,
   `wvg-sd-528`) **appear nowhere on the internet**,
@@ -82,7 +82,7 @@ Together that is consistent with code that **has never been compiled**. Had the
 author built it, they would have hit this contradiction immediately.
 
 It cannot be ruled out that a downstream fork exists with `sd_revalidate_disk`
-modified this way — but no trace of one was found, and neither Proxmox nor
+modified this way, but no trace of one was found, and neither Proxmox nor
 Ubuntu carries it.
 
 ## What would be needed to make it usable
@@ -95,11 +95,11 @@ the emulation infrastructure) builds on that and would have to be verified
 against it in full.
 
 Before anyone builds on this, it should be established whether the
-infrastructure makes sense at all — so far nobody has confirmed that it even
+infrastructure makes sense at all. So far nobody has confirmed that it even
 compiles, let alone that it ran.
 
 ## Recommendation
 
 Do not use until it compiles and passes a data integrity test against a native
-read via `sg_dd`. On its own this is not proof that the patch is wrong — it is
+read via `sg_dd`. On its own this is not proof that the patch is wrong. It is
 proof that it is **unverified**.
