@@ -246,7 +246,32 @@ def main():
             text = text[:idx] + POOL_DESTROY + text[idx:]
             log.append("  %-26s inserted" % "pool destroy")
 
-    # 5) TRIM: replace the blanket disable with the narrow restriction
+    # 5) TRIM: replace the blanket disable with the narrow restriction.
+    #    sd_config_discard() is defined several hundred lines below the point
+    #    where hunk 1 inserts the emulation block, and sd.c does not forward
+    #    declare it, so the call needs a prototype or the build fails on an
+    #    implicit declaration.
+    FWD = {
+        "ptr": "static void sd_config_discard(struct scsi_disk *sdkp,\n"
+               "\t\tstruct queue_limits *lim, unsigned int mode);\n",
+        "local": "static void sd_config_discard(struct scsi_disk *sdkp,\n"
+                 "\t\tstruct queue_limits *lim, unsigned int mode);\n",
+        "none": "static void sd_config_discard(struct scsi_disk *sdkp,\n"
+                "\t\tunsigned int mode);\n",
+    }[gen]
+    if "sd_config_discard" in text.split(A_GLOBALS)[0]:
+        log.append("  %-26s already declared" % "discard prototype")
+    else:
+        a = first_anchor(text, ["static void  sd_revalidate_disk(struct gendisk *);",
+                                "static void sd_revalidate_disk(struct gendisk *);",
+                                A_GLOBALS])
+        if a:
+            i = text.index(a)
+            text = text[:i] + FWD + text[i:]
+            log.append("  %-26s inserted" % "discard prototype")
+        else:
+            log.append("  %-26s no anchor matched, SKIPPED" % "discard prototype")
+
     if "sd_528_restrict_block_ops" in text:
         log.append("  %-26s already present" % "TRIM restriction")
     else:
