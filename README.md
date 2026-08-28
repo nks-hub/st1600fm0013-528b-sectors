@@ -52,7 +52,6 @@ official-lod/
 
 reformat-528-512.md                      what works and what does not when reformatting to 512 B
 linkrate-6g-analysis.md                  why the disks run at 6 Gb/s, and what a different backplane changes
-article-brief.md                         brief for a blog series based on this work
 
 hba/                                     SAS3216 "9305-16i" controller: upgrade to P16.12
   backup_fw_15.00.00.00.bin              backup of the card's original firmware (irreplaceable)

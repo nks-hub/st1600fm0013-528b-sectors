@@ -33,3 +33,7 @@ hba/sas3ircu
 # Vyrobni blok konkretni karty (SAS adresa, identita desky) - nikdy neverejnit
 hba/backup_mpb.bin
 *_mpb.bin
+
+# Interni zadani na clanky - neni soucasti verejne dokumentace
+article-brief.md
+article-brief_CZ.md
