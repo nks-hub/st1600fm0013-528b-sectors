@@ -121,7 +121,7 @@ RESTRICT_PTR = """static void sd_528_restrict_block_ops(struct scsi_disk *sdkp,
 	/* UNMAP carries only LBA descriptors and the LBA mapping is 1:1,
 	 * so it passes straight through to the device.
 	 */
-	if (sdkp->lbpu) {
+	if (sdkp->lbpu && sdkp->max_unmap_blocks) {
 		sdkp->provisioning_mode = SD_LBP_UNMAP;
 		sd_config_discard(sdkp, lim, SD_LBP_UNMAP);
 	} else {
@@ -147,7 +147,7 @@ RESTRICT_NONE = """static void sd_528_restrict_block_ops(struct scsi_disk *sdkp)
 	/* UNMAP carries only LBA descriptors and the LBA mapping is 1:1,
 	 * so it passes straight through to the device.
 	 */
-	if (sdkp->lbpu) {
+	if (sdkp->lbpu && sdkp->max_unmap_blocks) {
 		sdkp->provisioning_mode = SD_LBP_UNMAP;
 		sd_config_discard(sdkp, SD_LBP_UNMAP);
 	} else {
@@ -285,6 +285,41 @@ def main():
             log.append("  %-26s replaced blanket disable" % "TRIM restriction")
         else:
             log.append("  %-26s sd_disable_advanced_block_ops not found" % "TRIM restriction")
+
+    # 5b) An older port may have written the weak test. UNMAP is only usable
+    #     when MAXIMUM UNMAP LBA COUNT is non-zero, the same condition the
+    #     stock sd_discard_mode() applies.
+    if "if (sdkp->lbpu) {" in text:
+        text = text.replace("if (sdkp->lbpu) {",
+                            "if (sdkp->lbpu && sdkp->max_unmap_blocks) {")
+        log.append("  %-26s guarded on max_unmap_blocks" % "UNMAP condition")
+
+
+    # 6) Move the call to the end of sd_revalidate_disk().
+    #    Both the original patch and a naive port leave it inside
+    #    sd_read_capacity(), which runs several hundred lines BEFORE
+    #    sd_read_block_provisioning(), sd_config_discard() and
+    #    sd_read_write_same(). Everything the restriction sets is therefore
+    #    overwritten by the stock code that follows, including the WRITE SAME
+    #    disable that exists to keep an unresizable payload off the wire. It
+    #    has to be the last word on the subject, not the first.
+    A_LATE = ["\t\tsd_config_protection(sdkp, lim);\n",
+              "\t\tsd_config_protection(sdkp);\n",
+              "\t\tsd_read_security(sdkp, buffer);\n"]
+    call = re.search(r"[ \t]*if \(sdkp->emulate_512_from_fat\)\n"
+                     r"[ \t]*sd_528_restrict_block_ops\([^;]*\);\n", text)
+    late = first_anchor(text, A_LATE)
+    if not call or not late:
+        log.append("  %-26s call or anchor not found, SKIPPED" % "restriction placement")
+    elif call.start() > text.index(late):
+        log.append("  %-26s already last" % "restriction placement")
+    else:
+        args = "sdkp, lim" if gen == "ptr" else "sdkp"
+        text = text[:call.start()] + text[call.end():]
+        i = text.index(late) + len(late)
+        text = (text[:i] + "\n\t\tif (sdkp->emulate_512_from_fat)\n"
+                "\t\t\tsd_528_restrict_block_ops(%s);\n" % args + text[i:])
+        log.append("  %-26s moved after %s" % ("restriction placement", late.strip()))
 
     sd_c.write_text(text)
 
