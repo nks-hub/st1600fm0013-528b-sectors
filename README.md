@@ -39,7 +39,9 @@ dumps/
 official-lod/
   12002SSD-Koho-SAS-0004.zip             oficiální Seagate balíček
 
+reformat-528-512.md                      co projde a co ne pri reformatu na 512 B
 linkrate-6g-analyza.md                   proč disky jedou 6 Gb/s a co s tím udělá jiný backplane
+clanky-zadani.md                         zadani na blogovou serii z teto prace
 
 hba/                                     řadič SAS3216 „9305-16i“: upgrade na P16.12
   backup_fw_15.00.00.00.bin              záloha původního firmwaru karty (nenahraditelná)
