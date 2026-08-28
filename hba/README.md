@@ -123,6 +123,68 @@ což byl důsledek přepojování disků.
 Pro plné uplatnění nového firmwaru doporučuje dokumentace **studený start**, ne
 teplý restart.
 
+## Co ten upgrade přinesl
+
+Broadcom kumulativní changelog Phase 15 → Phase 16 nikdy nezveřejnil. Dostupné jsou
+dvě věci: release notes k samotnému point releasu (`docs/Intruder_Release_Notes_16.00.12.00.pdf`)
+a samotné firmware obrazy, které lze porovnat.
+
+### Co je v release notes k 16.00.12.00
+
+Dvě opravy, **obě SATA only** — na naše SAS disky tedy nemají vliv:
+
+| ID | Co to řeší |
+|---|---|
+| DCSG00398894 | WRITE SAME NCQ encapsulation posílalo Non-Data NCQ příkaz disku, který ho neumí, i když umí Zero EXT. Projev: I/O chyby při `mkfs.ext4`. |
+| DCSG00411882 | Zacyklení při dokončování ATA pass-through příkazu s čekajícím I/O s neplatným CDB → zatuhnutí řadiče. Projev: zakládání ZFS poolu na přímo připojených SSD. |
+
+Komunita k Phase 16 uvádí, že řeší „performance issues causing the controller to
+reset". Nikdo to ale veřejně nedoložil měřením před/po.
+
+### Co ukázalo porovnání obrazů
+
+Vlastní diff řetězců mezi zálohou P15 a nahraným P16.12:
+
+```
+P15  5400 unikátních řetězců, obraz 959 848 B
+P16  5467 unikátních řetězců, obraz 998 280 B   (+38 KB, +4 %)
+přibylo 1021, ubylo 954
+```
+
+Změny nejsou kosmetické. Přibyly celé skupiny:
+
+- **FPE (Fast Path Engine)** — `FPE Control Request Pause/UNPause`, `FPE Dev State
+  Table`, `FPE Timeout Error`, `FPE Timeout Missed IOs`, `FPE Start Pend Postponed`.
+  Nová logika okolo pauzování a timeoutů fast path. Sedí to na tvrzení o opravě
+  resetů řadiče.
+- **Discovery** — `DISC: SAS/SATA Port Enable Complete` / `not complete yet` s výpisem
+  čekajících stavů, a `DISC: The SMP Discover response indicated that devH is no
+  longer there`. Lepší ošetření zařízení, které během discovery zmizí.
+- **Enclosure management** — `EM VppGetCableSwapConnID`, `EM VppI2CDrvPresPoll`,
+  `EM VppSetSlotNum`, `EM SesPg0AMap PhyIdx`. Mapování slotů backplane a polling
+  přítomnosti disků.
+- **Task management** — `Error: TM request failed with status`, `ERROR: Unable to find
+  an outstanding IO for DevHandle`.
+- **Firmware download** — `FWDL Failed LogInfo`, `FWDL Status IOCStatus`.
+
+Konkrétní oprava, kterou je vidět přímo v diffu — prohozené šířky bitových polí při
+dekódování chybového stavu portu:
+
+```
+P15   Clear PORTERR: Core(2):Link(6):IntStatus(8):PllcState(16)
+P16   Clear PORTERR: Core(2):Link(6):IntStatus(16):PllcState(8)
+```
+
+Přibylo taky hlášení `CSW SPICO ECC error` (ECC chyby v SerDes mikrokontroléru) a do
+výpisu zařízení sloupec `Width`. Diagnostika se obecně zpřesnila — spousta formátů se
+rozšířila z `%x` na `%08x` / `%04x`.
+
+Pro nás je relevantní hlavně ta linková část: naměřili jsme `phy_reset_problem_count`
+486 a neplatné dwordy, což je přesně oblast, které se oprava PORTERR a hlášení SPICO
+ECC týkají.
+
+MPI rozhraní se posunulo 206.30 → 206.32.
+
 ## Co to nevyřešilo
 
 Rychlost linku zůstává 6 Gb/s. Řadič nabízí 12 Gb/s na všech phy (`maximum_linkrate
@@ -154,6 +216,7 @@ liveboot, takže cokoliv v `/root` zmizí při restartu.
 | `SAS9305_16i_IT_P.bin` | `917d0c11…b316464` | Stock základ P16.12 (SAS3224, sám o sobě nepoužitelný). |
 | `SAS9305_24i_IT_P.bin` | `3ed68273…b74a65b` | Stock 24i, jen pro srovnání. |
 | `sas3flash`, `sas3ircu` | | Nástroje od 45Drives. |
+| `docs/*.pdf` | | Dokumentace z balíčku P16.12: release notes, BIOS, UEFI BSD, quick reference k `sas3flash`. |
 
 ## Zdroje
 
