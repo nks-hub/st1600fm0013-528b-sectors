@@ -1,0 +1,740 @@
+--- a/drivers/scsi/sd.c	2026-02-19 15:29:56.000000000 +0000
++++ b/drivers/scsi/sd.c	2026-04-25 11:02:10.767603127 +0000
+@@ -114,13 +115,542 @@
+ static DEFINE_IDA(sd_index_ida);
+ 
+ static mempool_t *sd_page_pool;
++static mempool_t *sd_528_page_pool;
++static mempool_t *sd_528_ctx_pool;
+ static struct lock_class_key sd_bio_compl_lkclass;
++static bool sd_emulate_512_from_fat_sectors;
++static unsigned int sd_528_emulation_queue_depth = 32;
++/*
++ * Favor single-stream sequential throughput while staying inside a bounded
++ * preallocated reserve: the default cap is 2048 host sectors (1 MiB), while
++ * runtime tuning is clamped to a hard ceiling and the effective queue-depth
++ * cap is derived from the actual reserved pool footprint.
++ */
++static unsigned int sd_528_emulation_max_sectors = 2048;
++
++module_param_named(emulate_512_from_fat_sectors, sd_emulate_512_from_fat_sectors,
++		   bool, 0644);
++MODULE_PARM_DESC(emulate_512_from_fat_sectors,
++		 "Expose 520/528-byte sectors as 512-byte host sectors when the transport can strip trailing metadata");
++module_param_named(emulate_528_queue_depth, sd_528_emulation_queue_depth,
++		   uint, 0644);
++MODULE_PARM_DESC(emulate_528_queue_depth,
++		 "Limit queue depth for 528-byte to 512-byte emulation (0 uses the pool-limited maximum)");
++module_param_named(emulate_528_max_sectors, sd_528_emulation_max_sectors,
++		   uint, 0644);
++MODULE_PARM_DESC(emulate_528_max_sectors,
++		 "Limit max request size for 528-byte to 512-byte emulation in 512-byte sectors (0 uses the built-in safe maximum)");
+ 
+ static const char *sd_cache_types[] = {
+ 	"write through", "none", "write back",
+ 	"write back, no read (daft)"
+ };
+ 
++struct sd_528_bounce_chunk {
++	struct page *page;
++	unsigned int len;
++};
++
++#define SD_528_MAX_CHUNK_ORDER	4
++#define SD_528_CHUNK_BYTES	(PAGE_SIZE << SD_528_MAX_CHUNK_ORDER)
++#define SD_528_HOST_SECTOR_SIZE	512U
++#define SD_528_DEV_SECTOR_SIZE	528U
++#define SD_528_TRAILER_BYTES	(SD_528_DEV_SECTOR_SIZE - SD_528_HOST_SECTOR_SIZE)
++#define SD_528_BLOCKS_PER_CHUNK	(SD_528_CHUNK_BYTES / SD_528_DEV_SECTOR_SIZE)
++#define SD_528_CHUNK_USED_BYTES	(SD_528_BLOCKS_PER_CHUNK * SD_528_DEV_SECTOR_SIZE)
++#define SD_528_DEFAULT_MAX_SECTORS	2048U
++#define SD_528_MAX_HOST_SECTORS	4096U
++#define SD_528_MAX_CHUNKS	DIV_ROUND_UP(SD_528_MAX_HOST_SECTORS, \
++					 SD_528_BLOCKS_PER_CHUNK)
++
++struct sd_528_emulation_ctx {
++	struct scsi_data_buffer orig_sdb;
++	struct sg_table bounce_sgt;
++	unsigned int host_len;
++	unsigned int dev_len;
++	unsigned int nr_chunks;
++	struct scatterlist bounce_sgl[SD_528_MAX_CHUNKS];
++	struct sd_528_bounce_chunk chunks[SD_528_MAX_CHUNKS];
++};
++
++static unsigned int sd_528_effective_max_sectors(void)
++{
++	unsigned int max_sectors = sd_528_emulation_max_sectors;
++
++	if (!max_sectors)
++		max_sectors = SD_528_DEFAULT_MAX_SECTORS;
++
++	return min_t(unsigned int, max_sectors, SD_528_MAX_HOST_SECTORS);
++}
++
++static unsigned int sd_528_blocks_to_chunks(unsigned int blocks)
++{
++	return DIV_ROUND_UP(blocks, SD_528_BLOCKS_PER_CHUNK);
++}
++
++static unsigned int sd_528_segments_to_sectors(unsigned int max_segments)
++{
++	if (!max_segments)
++		return UINT_MAX;
++
++	if (max_segments > UINT_MAX / SD_528_BLOCKS_PER_CHUNK)
++		return UINT_MAX;
++
++	return max_segments * SD_528_BLOCKS_PER_CHUNK;
++}
++
++static unsigned int sd_528_queue_depth_cap(void)
++{
++	unsigned int chunks = sd_528_blocks_to_chunks(sd_528_effective_max_sectors());
++	unsigned int page_cap = max_t(unsigned int, 1,
++				      SD_528_MEMPOOL_SIZE / chunks);
++
++	return min_t(unsigned int, page_cap, SD_528_CTX_POOL_SIZE);
++}
++
++/*
++ * Keep a real reserve of preallocated 64 KiB bounce chunks for the emulation
++ * fast path. GFP_ATOMIC callers must draw from the reserve instead of dipping
++ * back into the buddy allocator on every I/O, otherwise page allocation and
++ * page clearing dominate the read path.
++ */
++static void *sd_528_mempool_page_alloc(gfp_t gfp_mask, void *pool_data)
++{
++	unsigned int order = (unsigned long)pool_data;
++
++	if (!(gfp_mask & __GFP_DIRECT_RECLAIM))
++		return NULL;
++
++	return alloc_pages(gfp_mask, order);
++}
++
++static void sd_528_mempool_page_free(void *element, void *pool_data)
++{
++	unsigned int order = (unsigned long)pool_data;
++
++	__free_pages(element, order);
++}
++
++static void sd_disable_advanced_block_ops(struct scsi_disk *sdkp,
++					  struct queue_limits *lim)
++{
++	sdkp->lbpme = 0;
++	sdkp->lbprz = 0;
++	sdkp->lbpu = 0;
++	sdkp->lbpws = 0;
++	sdkp->lbpws10 = 0;
++	sdkp->lbpvpd = 0;
++	sdkp->ws10 = 0;
++	sdkp->ws16 = 0;
++	sdkp->max_ws_blocks = 0;
++	sdkp->zeroing_mode = SD_ZERO_WRITE;
++	sdkp->provisioning_mode = SD_LBP_DISABLE;
++	lim->max_hw_discard_sectors = 0;
++	lim->max_discard_sectors = 0;
++	lim->max_write_zeroes_sectors = 0;
++}
++
++static unsigned int sd_adjust_logical_sector_size(struct scsi_disk *sdkp,
++						  unsigned int sector_size)
++{
++	sdkp->device_sector_size = sector_size;
++	sdkp->emulate_512_from_fat = 0;
++	sdkp->emulate_512_from_528 = 0;
++
++	switch (sector_size) {
++	case 520:
++		if (!sd_emulate_512_from_fat_sectors)
++			return sector_size;
++
++		sd_printk(KERN_NOTICE, sdkp,
++			  "Forcing %u-byte sectors to 512-byte host sectors; transport must strip %u trailing metadata bytes per block.\n",
++			  sector_size, sector_size - 512);
++		sdkp->emulate_512_from_fat = 1;
++		sdkp->protection_type = 0;
++		sdkp->physical_block_size = 512;
++		return 512;
++	case 528:
++		if (!sd_emulate_512_from_fat_sectors)
++			return sector_size;
++
++		sdkp->emulate_512_from_fat = 1;
++		sdkp->emulate_512_from_528 = 1;
++		sdkp->protection_type = 0;
++		sdkp->physical_block_size = 512;
++		return 512;
++	default:
++		return sector_size;
++	}
++}
++
++static void sd_528_limit_queue_depth(struct scsi_disk *sdkp)
++{
++	struct scsi_device *sdp = sdkp->device;
++	unsigned int cap = sd_528_queue_depth_cap();
++	unsigned int target = sd_528_emulation_queue_depth;
++
++	if (!sdkp->emulate_512_from_528)
++		return;
++
++	if (!target)
++		target = cap;
++	target = min(target, cap);
++	target = min_t(unsigned int, target, sdp->host->can_queue);
++	target = min_t(unsigned int, target, 4096);
++	if (sdp->queue_depth <= target)
++		return;
++
++	scsi_change_queue_depth(sdp, target);
++}
++
++static int sd_528_advance_sg(struct scatterlist **sgp, unsigned int *sg_offp,
++			     unsigned int bytes)
++{
++	struct scatterlist *sg = *sgp;
++	unsigned int sg_off = *sg_offp;
++
++	while (bytes) {
++		unsigned int avail;
++
++		if (!sg)
++			return -EIO;
++		if (sg_off == sg->length) {
++			sg = sg_next(sg);
++			sg_off = 0;
++			continue;
++		}
++
++		avail = sg->length - sg_off;
++		if (bytes < avail) {
++			sg_off += bytes;
++			bytes = 0;
++			break;
++		}
++
++		bytes -= avail;
++		sg = sg_next(sg);
++		sg_off = 0;
++	}
++
++	*sgp = sg;
++	*sg_offp = sg_off;
++	return 0;
++}
++
++static int sd_528_zero_sg_bytes(struct scatterlist **sgp, unsigned int *sg_offp,
++				unsigned int bytes)
++{
++	struct scatterlist *sg = *sgp;
++	unsigned int sg_off = *sg_offp;
++
++	while (bytes) {
++		unsigned int chunk;
++		char *dst;
++
++		if (!sg)
++			return -EIO;
++		if (sg_off == sg->length) {
++			sg = sg_next(sg);
++			sg_off = 0;
++			continue;
++		}
++
++		chunk = min(bytes, sg->length - sg_off);
++		dst = (char *)page_address(sg_page(sg)) + sg->offset + sg_off;
++		memset(dst, 0, chunk);
++		bytes -= chunk;
++		sg_off += chunk;
++	}
++
++	*sgp = sg;
++	*sg_offp = sg_off;
++	return 0;
++}
++
++static int sd_528_pack_sg_blocks(struct scsi_data_buffer *sdb,
++				 struct sg_table *bounce_sgt,
++				 unsigned int blocks)
++{
++	struct sg_mapping_iter miter;
++	struct scatterlist *bounce_sg = bounce_sgt->sgl;
++	unsigned int bounce_off = 0;
++	size_t host_pos = 0;
++	size_t host_len = (size_t)blocks * SD_528_HOST_SECTOR_SIZE;
++
++	sg_miter_start(&miter, sdb->table.sgl, sdb->table.nents,
++		       SG_MITER_ATOMIC | SG_MITER_FROM_SG);
++	while (host_pos < host_len && sg_miter_next(&miter)) {
++		const char *src = miter.addr;
++		unsigned int src_off = 0;
++
++		while (src_off < miter.length && host_pos < host_len) {
++			size_t block_off = host_pos & (SD_528_HOST_SECTOR_SIZE - 1);
++			size_t len = min_t(size_t, host_len - host_pos,
++					   min_t(size_t, miter.length - src_off,
++						 SD_528_HOST_SECTOR_SIZE - block_off));
++			size_t remaining = len;
++			const char *buf = src + src_off;
++
++			while (remaining) {
++				unsigned int chunk;
++				char *dst;
++
++				if (!bounce_sg)
++					goto out_eio;
++				if (bounce_off == bounce_sg->length) {
++					bounce_sg = sg_next(bounce_sg);
++					bounce_off = 0;
++					continue;
++				}
++
++				chunk = min_t(size_t, remaining,
++					      bounce_sg->length - bounce_off);
++				dst = (char *)page_address(sg_page(bounce_sg)) +
++				      bounce_sg->offset + bounce_off;
++				memcpy(dst, buf, chunk);
++				buf += chunk;
++				remaining -= chunk;
++				bounce_off += chunk;
++			}
++
++			src_off += len;
++			host_pos += len;
++
++			/*
++			 * Skip the protection trailer in the emulated 528-byte
++			 * device buffer after every 512-byte payload,
++			 * zeroing it while we are already walking the bounce SG.
++			 */
++			if (block_off + len == SD_528_HOST_SECTOR_SIZE &&
++			    sd_528_zero_sg_bytes(&bounce_sg, &bounce_off,
++						 SD_528_TRAILER_BYTES))
++				goto out_eio;
++		}
++	}
++	sg_miter_stop(&miter);
++
++	return host_pos == host_len ? 0 : -EIO;
++
++out_eio:
++	sg_miter_stop(&miter);
++	return -EIO;
++}
++
++static int sd_528_unpack_sg_bytes(struct scsi_data_buffer *sdb,
++				  struct sg_table *bounce_sgt,
++				  unsigned int bytes)
++{
++	struct sg_mapping_iter miter;
++	struct scatterlist *bounce_sg = bounce_sgt->sgl;
++	unsigned int bounce_off = 0;
++	size_t host_pos = 0;
++	size_t host_len = bytes;
++
++	sg_miter_start(&miter, sdb->table.sgl, sdb->table.nents,
++		       SG_MITER_ATOMIC | SG_MITER_TO_SG);
++	while (host_pos < host_len && sg_miter_next(&miter)) {
++		char *dst = miter.addr;
++		unsigned int dst_off = 0;
++
++		while (dst_off < miter.length && host_pos < host_len) {
++			size_t block_off = host_pos & (SD_528_HOST_SECTOR_SIZE - 1);
++			size_t len = min_t(size_t, host_len - host_pos,
++					   min_t(size_t, miter.length - dst_off,
++						 SD_528_HOST_SECTOR_SIZE - block_off));
++			size_t remaining = len;
++			char *buf = dst + dst_off;
++
++			while (remaining) {
++				unsigned int chunk;
++				char *src;
++
++				if (!bounce_sg)
++					goto out_eio;
++				if (bounce_off == bounce_sg->length) {
++					bounce_sg = sg_next(bounce_sg);
++					bounce_off = 0;
++					continue;
++				}
++
++				chunk = min_t(size_t, remaining,
++					      bounce_sg->length - bounce_off);
++				src = (char *)page_address(sg_page(bounce_sg)) +
++				      bounce_sg->offset + bounce_off;
++				memcpy(buf, src, chunk);
++				buf += chunk;
++				remaining -= chunk;
++				bounce_off += chunk;
++			}
++
++			dst_off += len;
++			host_pos += len;
++
++			if (block_off + len == SD_528_HOST_SECTOR_SIZE &&
++			    sd_528_advance_sg(&bounce_sg, &bounce_off,
++					      SD_528_TRAILER_BYTES))
++				goto out_eio;
++		}
++	}
++	sg_miter_stop(&miter);
++
++	return host_pos == host_len ? 0 : -EIO;
++
++out_eio:
++	sg_miter_stop(&miter);
++	return -EIO;
++}
++
++static void sd_528_release_emulation_ctx(struct sd_528_emulation_ctx *ctx)
++{
++	unsigned int i;
++
++	if (!ctx)
++		return;
++
++	for (i = 0; i < ctx->nr_chunks; i++) {
++		if (ctx->chunks[i].page)
++			mempool_free(ctx->chunks[i].page, sd_528_page_pool);
++		ctx->chunks[i].page = NULL;
++	}
++	ctx->nr_chunks = 0;
++	mempool_free(ctx, sd_528_ctx_pool);
++}
++
++static void sd_528_free_emulation(struct request *rq)
++{
++	struct sd_528_emulation_ctx *ctx = rq->end_io_data;
++
++	if (!ctx)
++		return;
++
++	rq->end_io_data = NULL;
++	sd_528_release_emulation_ctx(ctx);
++}
++
++static void sd_528_init_emulation_sg(struct sd_528_emulation_ctx *ctx)
++{
++	struct scatterlist *sg;
++	unsigned int i;
++
++	sg_init_table(ctx->bounce_sgl, ctx->nr_chunks);
++	ctx->bounce_sgt.sgl = ctx->bounce_sgl;
++	ctx->bounce_sgt.nents = ctx->nr_chunks;
++	ctx->bounce_sgt.orig_nents = ctx->nr_chunks;
++	for_each_sg(ctx->bounce_sgl, sg, ctx->nr_chunks, i)
++		sg_set_page(sg, ctx->chunks[i].page, ctx->chunks[i].len, 0);
++}
++
++static blk_status_t sd_528_alloc_emulation_buffer(struct sd_528_emulation_ctx *ctx)
++{
++	unsigned int remaining = ctx->dev_len;
++	unsigned int i = 0;
++
++	while (remaining) {
++		struct page *page;
++		unsigned int len;
++
++		page = mempool_alloc(sd_528_page_pool, GFP_ATOMIC);
++		if (!page)
++			return BLK_STS_RESOURCE;
++
++		len = min(remaining, SD_528_CHUNK_USED_BYTES);
++		ctx->chunks[i].page = page;
++		ctx->chunks[i].len = len;
++		ctx->nr_chunks = ++i;
++		remaining -= len;
++	}
++
++	sd_528_init_emulation_sg(ctx);
++	return BLK_STS_OK;
++}
++
++static blk_status_t sd_528_prepare_emulation(struct scsi_cmnd *cmd, bool write)
++{
++	struct request *rq = scsi_cmd_to_rq(cmd);
++	struct sd_528_emulation_ctx *ctx;
++	unsigned int blocks = blk_rq_bytes(rq) >> 9;
++	unsigned int bounce_segments = sd_528_blocks_to_chunks(blocks);
++	int ret;
++
++	if (blocks > SD_528_MAX_HOST_SECTORS)
++		return BLK_STS_IOERR;
++
++	if (rq->q->limits.max_segments &&
++	    bounce_segments > rq->q->limits.max_segments)
++		return BLK_STS_IOERR;
++
++	ctx = mempool_alloc(sd_528_ctx_pool, GFP_ATOMIC);
++	if (!ctx)
++		return BLK_STS_RESOURCE;
++
++	ctx->host_len = blocks * SD_528_HOST_SECTOR_SIZE;
++	ctx->dev_len = blocks * SD_528_DEV_SECTOR_SIZE;
++	ctx->nr_chunks = 0;
++	ctx->bounce_sgt.sgl = ctx->bounce_sgl;
++	ctx->bounce_sgt.nents = 0;
++	ctx->bounce_sgt.orig_nents = 0;
++
++	ret = sd_528_alloc_emulation_buffer(ctx);
++	if (ret != BLK_STS_OK)
++		goto resource;
++
++	if (write) {
++		ret = sd_528_pack_sg_blocks(&cmd->sdb, &ctx->bounce_sgt,
++					    blocks);
++		if (ret)
++			goto ioerr;
++	}
++
++	ctx->orig_sdb = cmd->sdb;
++	cmd->sdb.table = ctx->bounce_sgt;
++	cmd->sdb.length = ctx->dev_len;
++	rq->end_io_data = ctx;
++	return BLK_STS_OK;
++
++resource:
++	sd_528_release_emulation_ctx(ctx);
++	return BLK_STS_RESOURCE;
++ioerr:
++	sd_528_release_emulation_ctx(ctx);
++	return BLK_STS_IOERR;
++}
++
++static unsigned int sd_528_complete_emulation(struct scsi_cmnd *cmd,
++					      unsigned int good_bytes,
++					      int result)
++{
++	struct request *rq = scsi_cmd_to_rq(cmd);
++	struct sd_528_emulation_ctx *ctx = rq->end_io_data;
++	unsigned int copy_bytes;
++	int ret;
++
++	if (!ctx)
++		return good_bytes;
++
++	if (req_op(rq) == REQ_OP_READ) {
++		copy_bytes = min(good_bytes, ctx->host_len);
++		copy_bytes &= ~(SD_528_HOST_SECTOR_SIZE - 1);
++		ret = sd_528_unpack_sg_bytes(&ctx->orig_sdb, &ctx->bounce_sgt,
++					     copy_bytes);
++		if (ret) {
++			set_host_byte(cmd, DID_ERROR);
++			result = cmd->result;
++			good_bytes = 0;
++		} else {
++			good_bytes = copy_bytes;
++		}
++	}
++
++	cmd->sdb = ctx->orig_sdb;
++	if (!result) {
++		scsi_set_resid(cmd, 0);
++		return ctx->host_len;
++	}
++
++	scsi_set_resid(cmd, ctx->host_len);
++	return 0;
++}
++
+ static void sd_set_flush_flag(struct scsi_disk *sdkp,
+ 		struct queue_limits *lim)
+ {
+@@ -1087,6 +1557,12 @@
+ {
+ 	unsigned int logical_block_size = sdkp->device->sector_size;
+ 
++	if (sdkp->emulate_512_from_fat) {
++		sdkp->max_ws_blocks = 0;
++		sdkp->zeroing_mode = SD_ZERO_WRITE;
++		goto out;
++	}
++
+ 	if (sdkp->device->no_write_same) {
+ 		sdkp->max_ws_blocks = 0;
+ 		goto out;
+@@ -1395,15 +1871,27 @@
+ 	if (unlikely(ret != BLK_STS_OK))
+ 		goto fail;
+ 
++	if (sdkp->emulate_512_from_528) {
++		ret = sd_528_prepare_emulation(cmd, write);
++		if (ret != BLK_STS_OK)
++			goto fail;
++	}
++
+ 	/*
+ 	 * We shouldn't disconnect in the middle of a sector, so with a dumb
+ 	 * host adapter, it's safe to assume that we can at least transfer
+ 	 * this many bytes between each connect / disconnect.
+ 	 */
+-	cmd->transfersize = sdp->sector_size;
+-	cmd->underflow = nr_blocks << 9;
++	if (sdkp->emulate_512_from_528) {
++		cmd->transfersize = sdkp->device_sector_size;
++		cmd->underflow = nr_blocks * sdkp->device_sector_size;
++	} else {
++		cmd->transfersize = sdp->sector_size;
++		cmd->underflow = nr_blocks << 9;
++	}
+ 	cmd->allowed = sdkp->max_retries;
+-	cmd->sdb.length = nr_blocks * sdp->sector_size;
++	if (!sdkp->emulate_512_from_528)
++		cmd->sdb.length = nr_blocks * sdp->sector_size;
+ 
+ 	SCSI_LOG_HLQUEUE(1,
+ 			 scmd_printk(KERN_INFO, cmd,
+@@ -1472,6 +1960,7 @@
+ {
+ 	struct request *rq = scsi_cmd_to_rq(SCpnt);
+ 
++	sd_528_free_emulation(rq);
+ 	if (rq->rq_flags & RQF_SPECIAL_PAYLOAD)
+ 		mempool_free(rq->special_vec.bv_page, sd_page_pool);
+ }
+@@ -2273,11 +2767,12 @@
+ {
+ 	int result = SCpnt->result;
+ 	unsigned int good_bytes = result ? 0 : scsi_bufflen(SCpnt);
+-	unsigned int sector_size = SCpnt->device->sector_size;
+ 	unsigned int resid;
+ 	struct scsi_sense_hdr sshdr;
+ 	struct request *req = scsi_cmd_to_rq(SCpnt);
+ 	struct scsi_disk *sdkp = scsi_disk(req->q->disk);
++	unsigned int sector_size = sdkp->emulate_512_from_528 ?
++		sdkp->device_sector_size : SCpnt->device->sector_size;
+ 	int sense_valid = 0;
+ 	int sense_deferred = 0;
+ 
+@@ -2320,6 +2815,7 @@
+ 		if (sense_valid)
+ 			sense_deferred = scsi_sense_is_deferred(&sshdr);
+ 	}
++
+ 	sdkp->medium_access_timed_out = 0;
+ 
+ 	if (!scsi_status_is_check_condition(result) &&
+@@ -2376,6 +2872,11 @@
+  out:
+ 	if (sdkp->device->type == TYPE_ZBC)
+ 		good_bytes = sd_zbc_complete(SCpnt, good_bytes, &sshdr);
++	if (sdkp->emulate_512_from_528) {
++		good_bytes = sd_528_complete_emulation(SCpnt, good_bytes,
++						       SCpnt->result);
++		result = SCpnt->result;
++	}
+ 
+ 	SCSI_LOG_HLCOMPLETE(1, scmd_printk(KERN_INFO, SCpnt,
+ 					   "sd_done: completed %d of %d bytes\n",
+@@ -2874,6 +3375,10 @@
+ 			  "assuming 512.\n");
+ 	}
+ 
++	sector_size = sd_adjust_logical_sector_size(sdkp, sector_size);
++	if (sdkp->emulate_512_from_fat)
++		sd_disable_advanced_block_ops(sdkp, lim);
++
+ 	if (sector_size != 512 &&
+ 	    sector_size != 1024 &&
+ 	    sector_size != 2048 &&
+@@ -3710,6 +4215,8 @@
+ 	if (!scsi_device_online(sdp))
+ 		goto out;
+ 
++	sd_528_limit_queue_depth(sdkp);
++
+ 	lim = kmalloc(sizeof(*lim), GFP_KERNEL);
+ 	if (!lim)
+ 		goto out;
+@@ -3779,6 +4287,14 @@
+ 	/* Some devices report a maximum block count for READ/WRITE requests. */
+ 	dev_max = min_not_zero(dev_max, sdkp->max_xfer_blocks);
+ 	lim->max_dev_sectors = logical_to_sectors(sdp, dev_max);
++	if (sdkp->emulate_512_from_528) {
++		unsigned int emu_cap = sd_528_effective_max_sectors();
++
++		emu_cap = min_t(unsigned int, emu_cap,
++				sd_528_segments_to_sectors(lim->max_segments));
++		lim->max_dev_sectors = min_t(unsigned int,
++					     lim->max_dev_sectors, emu_cap);
++	}
+ 
+ 	if (sd_validate_min_xfer_size(sdkp))
+ 		lim->io_min = logical_to_bytes(sdp, sdkp->min_xfer_blocks);
+@@ -4378,6 +4890,25 @@
+ 		goto err_out_class;
+ 	}
+ 
++	sd_528_ctx_pool = mempool_create_kmalloc_pool(
++		SD_528_CTX_POOL_SIZE, sizeof(struct sd_528_emulation_ctx));
++	if (!sd_528_ctx_pool) {
++		printk(KERN_ERR "sd: can't init 528 emulation context pool\n");
++		err = -ENOMEM;
++		goto err_out_528_ctx_pool;
++	}
++
++	sd_528_page_pool = mempool_create(
++		SD_528_MEMPOOL_SIZE,
++		sd_528_mempool_page_alloc,
++		sd_528_mempool_page_free,
++		(void *)(unsigned long)SD_528_MAX_CHUNK_ORDER);
++	if (!sd_528_page_pool) {
++		printk(KERN_ERR "sd: can't init 528 emulation page pool\n");
++		err = -ENOMEM;
++		goto err_out_528_page_pool;
++	}
++
+ 	err = scsi_register_driver(&sd_template.gendrv);
+ 	if (err)
+ 		goto err_out_driver;
+@@ -4385,6 +4905,10 @@
+ 	return 0;
+ 
+ err_out_driver:
++	mempool_destroy(sd_528_page_pool);
++err_out_528_page_pool:
++	mempool_destroy(sd_528_ctx_pool);
++err_out_528_ctx_pool:
+ 	mempool_destroy(sd_page_pool);
+ err_out_class:
+ 	class_unregister(&sd_disk_class);
+@@ -4406,6 +4928,8 @@
+ 	SCSI_LOG_HLQUEUE(3, printk("exit_sd: exiting sd driver\n"));
+ 
+ 	scsi_unregister_driver(&sd_template.gendrv);
++	mempool_destroy(sd_528_page_pool);
++	mempool_destroy(sd_528_ctx_pool);
+ 	mempool_destroy(sd_page_pool);
+ 
+ 	class_unregister(&sd_disk_class);
+--- a/drivers/scsi/sd.h	2026-02-19 15:29:56.000000000 +0000
++++ b/drivers/scsi/sd.h	2026-04-20 13:36:29.758929050 +0000
+@@ -42,6 +42,8 @@
+ enum {
+ 	SD_EXT_CDB_SIZE = 32,	/* Extended CDB size */
+ 	SD_MEMPOOL_SIZE = 2,	/* CDB pool size */
++	SD_528_MEMPOOL_SIZE = 576,  /* 64 KiB aligned bounce chunk reserve */
++	SD_528_CTX_POOL_SIZE = 64,  /* preallocated 528 emulation contexts */
+ };
+ 
+ enum {
+@@ -124,6 +125,7 @@
+ 
+ 	u32		index;
+ 	unsigned int	physical_block_size;
++	unsigned int	device_sector_size;
+ 	unsigned int	max_medium_access_timeouts;
+ 	unsigned int	medium_access_timed_out;
+ 			/* number of permanent streams */
+@@ -149,6 +151,8 @@
+ 	unsigned	lbpvpd : 1;
+ 	unsigned	ws10 : 1;
+ 	unsigned	ws16 : 1;
++	unsigned	emulate_512_from_fat : 1;
++	unsigned	emulate_512_from_528 : 1;
+ 	unsigned	rc_basis: 2;
+ 	unsigned	zoned: 2;
+ 	unsigned	urswrz : 1;

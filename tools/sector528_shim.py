@@ -16,17 +16,30 @@ Spusteni:
 """
 import os, fcntl, struct, ctypes, errno
 
+import nbdkit
+import threading
+
+API_VERSION = 2
+
 SG_IO = 0x2285
+SG_SET_RESERVED_SIZE = 0x2275
+SG_GET_RESERVED_SIZE = 0x2272
 SG_DXFER_FROM_DEV = -3
 SG_DXFER_TO_DEV = -2
+SG_FLAG_DIRECT_IO = 1
 
 PHYS_BS = 528          # skutecna velikost sektoru na disku
 LOGICAL_BS = 512       # co ukazujeme ven
-MAX_BLOCKS = 128       # kolik sektoru najednou (128*528 = 67 kB)
+
+# O kolik rezervovaneho bufferu zadame; kernel muze dat min (limituje ho
+# max_sectors_kb blokoveho zarizeni), takze skutecnou hodnotu si po nastaveni
+# precteme zpatky a MAX_BLOCKS dopocitame az z ni.
+RESERVED_WANT = 4 * 1024 * 1024
 
 device = None
-fd = None
 nsectors = 0
+MAX_BLOCKS = 60        # bezpecny vychozi strop (60*528 = 31,7 kB), prepise se
+_tls = threading.local()   # kazde vlakno ma vlastni fd, jinak by se SG_IO praly
 
 
 class SGIOHdr(ctypes.Structure):
@@ -56,7 +69,34 @@ class SGIOHdr(ctypes.Structure):
     ]
 
 
-def _scsi(cdb, direction, buf, timeout=20000):
+def _get_fd():
+    """Vlastni file descriptor pro kazde vlakno + vetsi rezervovany buffer.
+
+    Vychozich 32 kB v sg driveru je pri jednom SG_IO strop, ktery drzi
+    propustnost kolem 130 MB/s bez ohledu na to, jak velky pozadavek prijde.
+    """
+    fd = getattr(_tls, "fd", None)
+    if fd is None:
+        fd = os.open(device, os.O_RDWR)
+        try:
+            fcntl.ioctl(fd, SG_SET_RESERVED_SIZE,
+                        struct.pack("i", RESERVED_WANT))
+        except OSError:
+            pass
+        _tls.fd = fd
+    return fd
+
+
+def _reserved(fd):
+    """Kolik driver skutecne rezervoval - o tolik se smi ptat na jeden prikaz."""
+    try:
+        return struct.unpack("i", fcntl.ioctl(fd, SG_GET_RESERVED_SIZE,
+                                              struct.pack("i", 0)))[0]
+    except OSError:
+        return 32768
+
+
+def _scsi(cdb, direction, buf, timeout=30000):
     cmd = (ctypes.c_ubyte * len(cdb))(*cdb)
     sense = (ctypes.c_ubyte * 32)()
     hdr = SGIOHdr()
@@ -69,7 +109,7 @@ def _scsi(cdb, direction, buf, timeout=20000):
     hdr.cmdp = ctypes.cast(cmd, ctypes.c_void_p)
     hdr.sbp = ctypes.cast(sense, ctypes.c_void_p)
     hdr.timeout = timeout
-    fcntl.ioctl(fd, SG_IO, hdr)
+    fcntl.ioctl(_get_fd(), SG_IO, hdr)
     if hdr.status != 0:
         sk = sense[2] & 0x0F if hdr.sb_len_wr > 2 else -1
         raise OSError(errno.EIO,
@@ -111,17 +151,27 @@ def config(key, value):
         raise RuntimeError("neznamy parametr: %s" % key)
 
 
+def thread_model():
+    # vychozi je SERIALIZE_ALL_REQUESTS, coz drzi queue depth na jedne
+    return nbdkit.THREAD_MODEL_PARALLEL
+
+
 def config_complete():
-    global fd, nsectors
+    global nsectors
     if device is None:
         raise RuntimeError("chybi parametr device=/dev/sgN")
-    fd = os.open(device, os.O_RDWR)
     nsectors, bs = _readcap()
     if bs != PHYS_BS:
         raise RuntimeError("disk hlasi %d B na sektor, cekal jsem %d" % (bs, PHYS_BS))
+    global MAX_BLOCKS
+    rsv = _reserved(_get_fd())
+    # o vic nez rezervovany buffer se ptat nesmime, jinak SG_IO vrati EIO
+    MAX_BLOCKS = max(8, rsv // PHYS_BS)
     print("sector528_shim: %s  %d sektoru x %d B  ->  %d x %d B (%.2f GB)"
           % (device, nsectors, PHYS_BS, nsectors, LOGICAL_BS,
              nsectors * LOGICAL_BS / 1e9), flush=True)
+    print("sector528_shim: reserved buffer %d kB, max %d sektoru na prikaz, "
+          "thread model PARALLEL" % (rsv // 1024, MAX_BLOCKS), flush=True)
 
 
 def open(readonly):
@@ -203,4 +253,4 @@ def can_flush(h):
 
 
 def can_multi_conn(h):
-    return False
+    return True
