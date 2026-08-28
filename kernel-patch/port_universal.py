@@ -321,6 +321,23 @@ def main():
                 "\t\t\tsd_528_restrict_block_ops(%s);\n" % args + text[i:])
         log.append("  %-26s moved after %s" % ("restriction placement", late.strip()))
 
+
+    # 7) init_sd() frees the context pool twice when the page pool fails to
+    #    allocate: once inline, then again through the err_out_528_page_pool
+    #    label it jumps past. The label itself is left unreferenced, which is
+    #    exactly the warning gcc emits. Route the failure through the label.
+    DOUBLE_FREE = re.compile(
+        r"(\tif \(!sd_528_page_pool\) \{\n)"
+        r"\t\tmempool_destroy\(sd_528_ctx_pool\);\n"
+        r"(\t\tprintk\(KERN_ERR [^\n]*\n\t\terr = -ENOMEM;\n\t\tgoto )err_out_driver(;\n\t\})")
+    text, n = DOUBLE_FREE.subn(r"\1\2err_out_528_page_pool\3", text)
+    if n:
+        log.append("  %-26s double free removed" % "init_sd error path")
+    elif "goto err_out_528_page_pool;" in text:
+        log.append("  %-26s already fixed" % "init_sd error path")
+    else:
+        log.append("  %-26s pattern not matched, SKIPPED" % "init_sd error path")
+
     sd_c.write_text(text)
 
     print("\n".join(log))
