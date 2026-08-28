@@ -3,7 +3,13 @@
 Archiv k pokusu odemknout IBM-branded Seagate SAS SSD, které jsou natvrdo zamčené
 na 528bajtové sektory a 6 Gb/s link.
 
-**Stav: softwarově vyčerpáno. Otevřená zůstává jen cesta přes přeprogramování SPI flash.**
+**Stav: 512 B VYŘEŠENO** kernel patchem — disk se v systému objeví jako nativní
+512bajtové blokové zařízení. Ověřeno v QEMU včetně křížové validace, podrobnosti
+v [`kernel-patch/VYSLEDEK.md`](kernel-patch/VYSLEDEK.md).
+
+**12 Gb/s zůstává nevyřešené** — ten limit je ve firmwaru disku. Jediná známá
+cesta je PC-3000 SAS s funkcí „odemknout mikroprogram", která umí nahrát
+firmware jiného vendora.
 
 ---
 
@@ -55,9 +61,9 @@ kernel-patch/
   OVERENI.md                             proč ho zatím nelze použít
 ```
 
-> **Pozor na `kernel-patch/`** — ten patch cílí na API, které v žádném upstream
-> kernelu (6.8–6.14) neexistuje, a vše nasvědčuje tomu, že nikdy neprošel
-> překladem. Podrobnosti v `kernel-patch/OVERENI.md`.
+> **`kernel-patch/`** — patch původně cílil na API, které v upstream neexistuje
+> (viz `OVERENI.md`). Po doportování na 6.8 se přeložil a **funguje** — výsledky
+> testů v `VYSLEDEK.md`.
 
 ### Kontrolní součty
 
