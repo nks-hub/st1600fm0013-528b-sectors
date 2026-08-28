@@ -91,10 +91,10 @@ chmod +x sas3ircu sas3flash
 curl -LO http://images.45drives.com/Firmware/LSI9305/16i/SAS9305_16i_IT_P.bin
 git clone https://github.com/kjake/sas3216-9305-firmware.git
 python3 sas3216-9305-firmware/build_3216_clone_fw.py \
-        --base SAS9305_16i_IT_P.bin --out muj_clone_P16.bin
+        --base SAS9305_16i_IT_P.bin --out my_clone_P16.bin
 
 # flash, bez option ROM (IT mode, ze systému se z HBA nebootuje)
-./sas3flash -o -c 0 -f muj_clone_P16.bin < /dev/null
+./sas3flash -o -c 0 -f my_clone_P16.bin < /dev/null
 ```
 
 ## Výsledek
@@ -210,7 +210,7 @@ liveboot, takže cokoliv v `/root` zmizí při restartu.
 |---|---|---|
 | `backup_fw_15.00.00.00.bin` | `e2fc1ee7…24cfd3a` | **Záloha původního firmwaru karty.** Shodná s referenčním klonem z repa. |
 | `backup_bios_08.35.00.00.rom` | `28a9e758…1d63d0` | Záloha option ROM. |
-| `muj_clone_P16.bin` | `2ddb5ee0…8a27314` | Nahraný obraz. Vlastní build, bajtově shodný s validovaným z repa. |
+| `my_clone_P16.bin` | `2ddb5ee0…8a27314` | Nahraný obraz. Vlastní build, bajtově shodný s validovaným z repa. |
 | `SAS9305_16i_IT_P.bin` | `917d0c11…b316464` | Stock základ P16.12 (SAS3224, sám o sobě nepoužitelný). |
 | `SAS9305_24i_IT_P.bin` | `3ed68273…b74a65b` | Stock 24i, jen pro srovnání. |
 | *(v repu nejsou)* | | `sas3flash`, `sas3ircu` a `backup_mpb.bin` jsou záměrně vynechané — nástroje patří Broadcomu a jdou stáhnout z URL výše, výrobní blok je unikátní pro jednu kartu. Vlastní zálohu přes `-umpb` si udělej a drž ji mimo verzování. |
