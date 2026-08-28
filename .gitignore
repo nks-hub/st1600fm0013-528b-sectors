@@ -25,3 +25,11 @@ Module.symvers
 # Python
 __pycache__/
 *.pyc
+
+# Broadcom nastroje - stazitelne dle hba/README.md, neredistribuujeme je
+hba/sas3flash
+hba/sas3ircu
+
+# Vyrobni blok konkretni karty (SAS adresa, identita desky) - nikdy neverejnit
+hba/backup_mpb.bin
+*_mpb.bin

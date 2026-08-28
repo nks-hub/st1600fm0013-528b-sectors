@@ -89,7 +89,6 @@ chmod +x sas3ircu sas3flash
 # backups (stdin from /dev/null, or the utility's pager eats the rest of the script)
 ./sas3flash -o -c 0 -ufirmware backup_fw_15.00.00.00.bin  < /dev/null
 ./sas3flash -o -c 0 -ubios     backup_bios_08.35.00.00.rom < /dev/null
-./sas3flash -o -c 0 -umpb      backup_mpb.bin              < /dev/null
 
 # build
 curl -LO http://images.45drives.com/Firmware/LSI9305/16i/SAS9305_16i_IT_P.bin
@@ -218,11 +217,10 @@ survives. `-e 7` erases that too — then the address has to be restored by hand
 |---|---|---|
 | `backup_fw_15.00.00.00.bin` | `e2fc1ee7…24cfd3a` | **Backup of the card's original firmware.** Identical to the reference clone in the upstream repository. |
 | `backup_bios_08.35.00.00.rom` | `28a9e758…1d63d0` | Option ROM backup. |
-| `backup_mpb.bin` | `9acf33aa…5ec9af9d` | Manufacturing block (SAS address, board identity). |
 | `my_clone_P16.bin` | `2ddb5ee0…8a27314` | The image that was flashed. A local build, byte-identical to the validated one from the repository. |
 | `SAS9305_16i_IT_P.bin` | `917d0c11…b316464` | Stock P16.12 base (SAS3224, unusable on its own). |
 | `SAS9305_24i_IT_P.bin` | `3ed68273…b74a65b` | Stock 24i, for comparison only. |
-| `sas3flash`, `sas3ircu` | | Tools from 45Drives. |
+| *(not in the repo)* | | `sas3flash`, `sas3ircu` and `backup_mpb.bin` are deliberately excluded — the tools are Broadcom's and downloadable from the URLs above, and the manufacturing block is unique to one card. Make your own `-umpb` backup and keep it outside version control. |
 | `docs/*.pdf` | | Documentation from the P16.12 package: release notes, BIOS, UEFI BSD, `sas3flash` quick reference. |
 
 ## Sources

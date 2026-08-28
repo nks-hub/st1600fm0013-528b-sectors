@@ -86,7 +86,6 @@ chmod +x sas3ircu sas3flash
 # zálohy (stdin na /dev/null, jinak si utilita sežere zbytek skriptu ve stránkovači)
 ./sas3flash -o -c 0 -ufirmware backup_fw_15.00.00.00.bin  < /dev/null
 ./sas3flash -o -c 0 -ubios     backup_bios_08.35.00.00.rom < /dev/null
-./sas3flash -o -c 0 -umpb      backup_mpb.bin              < /dev/null
 
 # build
 curl -LO http://images.45drives.com/Firmware/LSI9305/16i/SAS9305_16i_IT_P.bin
@@ -211,11 +210,10 @@ liveboot, takže cokoliv v `/root` zmizí při restartu.
 |---|---|---|
 | `backup_fw_15.00.00.00.bin` | `e2fc1ee7…24cfd3a` | **Záloha původního firmwaru karty.** Shodná s referenčním klonem z repa. |
 | `backup_bios_08.35.00.00.rom` | `28a9e758…1d63d0` | Záloha option ROM. |
-| `backup_mpb.bin` | `9acf33aa…5ec9af9d` | Výrobní blok (SAS adresa, identita desky). |
 | `muj_clone_P16.bin` | `2ddb5ee0…8a27314` | Nahraný obraz. Vlastní build, bajtově shodný s validovaným z repa. |
 | `SAS9305_16i_IT_P.bin` | `917d0c11…b316464` | Stock základ P16.12 (SAS3224, sám o sobě nepoužitelný). |
 | `SAS9305_24i_IT_P.bin` | `3ed68273…b74a65b` | Stock 24i, jen pro srovnání. |
-| `sas3flash`, `sas3ircu` | | Nástroje od 45Drives. |
+| *(v repu nejsou)* | | `sas3flash`, `sas3ircu` a `backup_mpb.bin` jsou záměrně vynechané — nástroje patří Broadcomu a jdou stáhnout z URL výše, výrobní blok je unikátní pro jednu kartu. Vlastní zálohu přes `-umpb` si udělej a drž ji mimo verzování. |
 | `docs/*.pdf` | | Dokumentace z balíčku P16.12: release notes, BIOS, UEFI BSD, quick reference k `sas3flash`. |
 
 ## Zdroje
