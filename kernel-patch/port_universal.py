@@ -344,6 +344,62 @@ def main():
     else:
         log.append("  %-26s pattern not matched, SKIPPED" % "init_sd error path")
 
+
+    # 9) Make the reserve sizes boot parameters.
+    #    SD_528_MEMPOOL_SIZE and SD_528_CTX_POOL_SIZE are plain counts, never
+    #    array bounds, so nothing stops them being tunable. Measured on eight
+    #    disks, the pool is what caps large-request throughput, and leaving the
+    #    only way to change it as an edit-and-rebuild makes that impossible to
+    #    tune in place. The enum in sd.h stays as the default.
+    PARAMS = (
+        "static unsigned int sd_528_pool_chunks = SD_528_MEMPOOL_SIZE;\n"
+        "static unsigned int sd_528_pool_contexts = SD_528_CTX_POOL_SIZE;\n"
+        "module_param_named(emulate_528_pool_chunks, sd_528_pool_chunks,\n"
+        "\t\t   uint, 0444);\n"
+        "MODULE_PARM_DESC(emulate_528_pool_chunks,\n"
+        "\t\t \"Bounce chunks reserved for 528-byte emulation, 64 KiB each "
+        "(read at init only)\");\n"
+        "module_param_named(emulate_528_pool_contexts, sd_528_pool_contexts,\n"
+        "\t\t   uint, 0444);\n"
+        "MODULE_PARM_DESC(emulate_528_pool_contexts,\n"
+        "\t\t \"Preallocated 528-byte emulation contexts (read at init only)\");\n"
+    )
+    if "sd_528_pool_chunks" in text:
+        log.append("  %-26s already present" % "pool size parameters")
+    else:
+        a = first_anchor(text, ["MODULE_PARM_DESC(emulate_528_max_sectors,\n"])
+        if not a:
+            log.append("  %-26s anchor not found, SKIPPED" % "pool size parameters")
+        else:
+            i = text.index(a) + len(a)
+            i = text.index("\n", i) + 1          # past the description string
+            text = text[:i] + PARAMS + text[i:]
+            # the two counts are used in the depth cap and in init_sd
+            text = text.replace("SD_528_MEMPOOL_SIZE / chunks",
+                                "sd_528_pool_chunks / chunks")
+            text = text.replace("page_cap, SD_528_CTX_POOL_SIZE",
+                                "page_cap, sd_528_pool_contexts")
+            text = text.replace("\t\tSD_528_CTX_POOL_SIZE, sizeof(struct sd_528_emulation_ctx));",
+                                "\t\tsd_528_pool_contexts, sizeof(struct sd_528_emulation_ctx));")
+            text = text.replace("\t\tSD_528_MEMPOOL_SIZE,\n",
+                                "\t\tsd_528_pool_chunks,\n")
+
+    # 9b) A zero or absurd reserve either starves the pool or fails the
+    #     allocation at init, which means no sd driver and no root device.
+    #     Clamp what the boot line asks for.
+    CLAMP = ("\tsd_528_pool_chunks = clamp_t(unsigned int, sd_528_pool_chunks,\n"
+             "\t\t\t\t     1, 65536);\n"
+             "\tsd_528_pool_contexts = clamp_t(unsigned int, sd_528_pool_contexts,\n"
+             "\t\t\t\t       1, 65536);\n")
+    b = "\tSCSI_LOG_HLQUEUE(3, printk(\"init_sd: sd driver entry point\\n\"));\n"
+    if "sd_528_pool_chunks = clamp_t" in text:
+        log.append("  %-26s already clamped" % "pool size parameters")
+    elif b in text:
+        j = text.index(b) + len(b)
+        text = text[:j] + "\n" + CLAMP + text[j:]
+        log.append("  %-26s clamped in init_sd" % "pool size parameters")
+    else:
+        log.append("  %-26s clamp anchor not found" % "pool size parameters")
     sd_c.write_text(text)
 
     print("\n".join(log))
