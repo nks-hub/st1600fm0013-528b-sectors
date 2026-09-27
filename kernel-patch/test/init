@@ -1,0 +1,112 @@
+#!/bin/sh
+# /init for the busybox initramfs built by run-qemu.sh. Exercises the 528
+# emulation on a scsi_debug disk with 528-byte sectors and prints one line per
+# test. Error injection goes through scsi_debug's debugfs "error" file
+# (type count opcode host driver status sense-key asc ascq) and its every_nth
+# and opts knobs. Every data check compares against a known pattern.
+mount -t proc p /proc; mount -t sysfs s /sys; mount -t devtmpfs d /dev 2>/dev/null
+mount -t debugfs d /sys/kernel/debug; mount -t tmpfs t /tmp
+echo "=== TESTSTART"
+echo "size=$(cat /sys/block/sda/size) lbs=$(cat /sys/block/sda/queue/logical_block_size)" \
+     "max_kb=$(cat /sys/block/sda/queue/max_sectors_kb) qd=$(cat /sys/block/sda/device/queue_depth)"
+E=/sys/kernel/debug/scsi_debug/0:0:0:0/error
+D=/sys/bus/pseudo/drivers/scsi_debug
+
+dd if=/dev/urandom of=/tmp/pat bs=1M count=8 2>/dev/null
+dd if=/tmp/pat of=/dev/sda bs=128k oflag=direct 2>/dev/null; sync
+dd if=/dev/sda of=/tmp/rd bs=128k count=64 iflag=direct 2>/dev/null
+cmp /tmp/pat /tmp/rd && echo "T1 baseline integrity: OK" || echo "T1 baseline integrity: FAIL"
+
+chk() { # $1 name, $2 offset in 128k units: read back and compare with /tmp/pat
+  dd if=/dev/sda of=/tmp/r bs=128k skip=$2 count=1 iflag=direct 2>/dev/null
+  dd if=/tmp/pat of=/tmp/p bs=128k skip=$2 count=1 2>/dev/null
+  cmp /tmp/p /tmp/r >/dev/null 2>&1 && echo "$1: OK" || echo "$1: FAIL (data mismatch)"
+}
+# READ hit once by a host reset / unit attention: the core retries the same
+# command without preparing it again
+echo "2 -1 0x28 0x08 0 0 0 0 0" > $E; chk "T2 read + DID_RESET" 3
+echo "2 -1 0x28 0 0 2 6 0x29 0" > $E; chk "T3 read + UNIT ATTENTION" 5
+
+dd if=/dev/urandom of=/tmp/pat2 bs=128k count=1 2>/dev/null
+wr() { # $1 name $2 offset $3 injection: write /tmp/pat2, verify it and the next block
+  echo "$3" > $E
+  dd if=/tmp/pat2 of=/dev/sda bs=128k seek=$2 count=1 oflag=direct 2>/dev/null; echo "   dd exit $?"
+  dd if=/dev/sda of=/tmp/r bs=128k skip=$2 count=1 iflag=direct 2>/dev/null
+  cmp /tmp/pat2 /tmp/r >/dev/null 2>&1 && echo "$1: OK" || echo "$1: FAIL (data mismatch)"
+  dd if=/dev/sda of=/tmp/r bs=128k skip=$(($2+1)) count=1 iflag=direct 2>/dev/null
+  dd if=/tmp/pat of=/tmp/p bs=128k skip=$(($2+1)) count=1 2>/dev/null
+  cmp /tmp/p /tmp/r >/dev/null 2>&1 && echo "$1 neighbour: OK" || echo "$1 neighbour: FAIL"
+}
+wr "T4 write + DID_RESET" 10 "2 -1 0x2a 0x08 0 0 0 0 0"
+wr "T5 write + UNIT ATTENTION" 20 "2 -1 0x2a 0 0 2 6 0x29 0"
+# T6/T7: this injection returns RECOVERED ERROR *without* running the command,
+# which a real device never does. A stock 512-byte disk "fails" these the same
+# way; they are here to show that the emulation now matches stock sd.
+wr "T6 write + injected RECOVERED ERROR (see note)" 30 "2 -1 0x2a 0 0 2 1 0x17 0"
+echo "2 -1 0x28 0 0 2 1 0x17 0" > $E; chk "T7 read + injected RECOVERED ERROR (see note)" 7
+
+dd if=/dev/urandom of=/tmp/pat bs=1M count=8 2>/dev/null
+for i in 0 1 2 3 4 5 6 7; do
+  dd if=/tmp/pat of=/dev/sda bs=64k skip=$((i*16)) seek=$((i*16)) count=16 oflag=direct 2>/dev/null &
+done; wait
+dd if=/dev/sda of=/tmp/rd bs=1M count=8 iflag=direct 2>/dev/null
+cmp /tmp/pat /tmp/rd && echo "T8 parallel integrity: OK" || echo "T8 parallel integrity: FAIL"
+
+dd if=/tmp/pat of=/dev/sda bs=512 skip=100 seek=2049 count=17 oflag=direct 2>/dev/null
+dd if=/dev/sda of=/tmp/r bs=512 skip=2049 count=17 iflag=direct 2>/dev/null
+dd if=/tmp/pat of=/tmp/p bs=512 skip=100 count=17 2>/dev/null
+cmp /tmp/p /tmp/r && echo "T9 unaligned 17 sectors: OK" || echo "T9 unaligned 17 sectors: FAIL"
+
+# on-disk layout: host LBA N -> device LBA N, 512 data bytes + 16 zero bytes
+dd if=/tmp/pat of=/dev/sda bs=512 skip=7 seek=1000 count=3 oflag=direct 2>/dev/null
+for n in 0 1 2; do
+  rawrd /dev/sda $((1000+n)) > /tmp/raw
+  dd if=/tmp/raw of=/tmp/rd bs=512 count=1 2>/dev/null
+  dd if=/tmp/pat of=/tmp/p bs=512 skip=$((7+n)) count=1 2>/dev/null
+  t=$(dd if=/tmp/raw bs=1 skip=512 2>/dev/null | od -An -tx1 | tr -d ' \n')
+  cmp /tmp/p /tmp/rd >/dev/null && echo "T17 layout LBA $((1000+n)): OK trailer=$t" \
+                                || echo "T17 layout LBA $((1000+n)): FAIL"
+done
+
+# scsi_debug's own injections, which do run the command
+dd if=/dev/urandom of=/tmp/pat bs=1M count=8 2>/dev/null
+dd if=/tmp/pat of=/dev/sda bs=128k oflag=direct 2>/dev/null
+echo 3 > $D/every_nth; echo 0x100 > $D/opts      # short transfer: half the data, resid set, GOOD status
+dd if=/dev/sda of=/tmp/rd bs=128k count=64 iflag=direct 2>/dev/null
+echo 0 > $D/opts; echo 0 > $D/every_nth
+cmp /tmp/pat /tmp/rd >/dev/null && echo "T13 read with short transfers (resid): OK" \
+                                || echo "T13 read with short transfers (resid): FAIL"
+echo 2 > $D/every_nth; echo 8 > $D/opts          # RECOVERED ERROR after the data moved
+dd if=/tmp/pat of=/dev/sda bs=128k oflag=direct 2>/dev/null
+dd if=/dev/sda of=/tmp/rd bs=128k count=64 iflag=direct 2>/dev/null
+echo 0 > $D/opts; echo 0 > $D/every_nth
+cmp /tmp/pat /tmp/rd >/dev/null && echo "T14 real RECOVERED ERROR: OK" || echo "T14 real RECOVERED ERROR: FAIL"
+echo 2 > $D/every_nth; echo 16 > $D/opts         # ABORTED COMMAND, transport problem
+dd if=/tmp/pat of=/dev/sda bs=128k oflag=direct 2>/dev/null
+dd if=/dev/sda of=/tmp/rd bs=128k count=64 iflag=direct 2>/dev/null
+echo 0 > $D/opts; echo 0 > $D/every_nth
+cmp /tmp/pat /tmp/rd >/dev/null && echo "T15 transport errors: OK" || echo "T15 transport errors: FAIL"
+echo 2 > $D/opts                                 # medium error at LBA 0x1234..
+dd if=/dev/sda of=/tmp/r bs=512 skip=4600 count=128 iflag=direct 2>/dev/null
+echo "T16 read over medium error: dd exit $? (non-zero expected)"
+dd if=/dev/sda of=/tmp/r bs=512 skip=8000 count=128 iflag=direct 2>/dev/null
+echo "T16b read elsewhere: dd exit $? (0 expected)"
+echo 0 > $D/opts
+
+echo "T10 physical_block_size: $(cat /sys/block/sda/queue/physical_block_size)"
+echo 0 > /sys/module/sd_mod/parameters/emulate_512_from_fat_sectors
+echo 1 > /sys/block/sda/device/rescan; sleep 1
+echo "T11 size after param off + rescan: $(cat /sys/block/sda/size) (127100 = emulation kept)"
+echo 1 > /sys/module/sd_mod/parameters/emulate_512_from_fat_sectors
+echo 1 > /sys/block/sda/device/rescan; sleep 1
+chk "T11b data after rescan" 2
+
+# last, because the unfixed driver oopses here: take the disk offline while
+# prepared commands sit on the requeue list (host busy on every READ)
+echo "1 -100000 0x28 0x1055" > $E
+dd if=/dev/sda of=/dev/null bs=128k count=8 iflag=direct 2>/dev/null &
+sleep 2; echo offline > /sys/block/sda/device/state; sleep 1; echo "- 1 0x28" > $E; sleep 2
+echo "T12 offline with requeued commands: survived"
+echo "=== TESTEND"
+dmesg | grep -E "KASAN|BUG:|WARNING:|Oops" | head -20
+reboot -f

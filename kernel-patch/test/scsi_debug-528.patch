@@ -1,0 +1,12 @@
+diff --git a/drivers/scsi/scsi_debug.c b/drivers/scsi/scsi_debug.c
+index 1515495fd..cd4699ad8 100644
+--- a/drivers/scsi/scsi_debug.c
++++ b/drivers/scsi/scsi_debug.c
+@@ -8498,6 +8498,7 @@ static int __init scsi_debug_init(void)
+ 	case 1024:
+ 	case 2048:
+ 	case 4096:
++	case 528: /* TEST ONLY */
+ 		break;
+ 	default:
+ 		pr_err("invalid sector_size %d\n", sdebug_sector_size);
