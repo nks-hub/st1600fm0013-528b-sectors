@@ -103,9 +103,18 @@ The two limits have to agree or ZFS spends its time being requeued:
 zfs_vdev_aggregation_limit  <=  emulate_528_max_sectors * 512
 ```
 
-At the defaults both are 1 MiB, which happens to line up. If
-`emulate_528_max_sectors` is lowered to trade request size for parallelism, the
-aggregation limit has to come down with it.
+On SSDs the limit that applies is `zfs_vdev_aggregation_limit_non_rotating`,
+128 KiB by default, because the emulated disks report themselves as
+non-rotational (`queue/rotational` = 0). That already matches
+`emulate_528_max_sectors=256`, the setting the measurements arrived at. If
+`emulate_528_max_sectors` goes lower still, the aggregation limit has to come
+down with it.
+
+Always pass `-o ashift=12` explicitly, to `zpool add` as well as to
+`zpool create`. With the fixes in
+[kernel-patch/HARDENING.md](kernel-patch/HARDENING.md) the emulated disks report
+4096-byte physical blocks, so the default is right too, but a vdev added at
+ashift=9 can never be removed again.
 
 Vdev queue depths (`zfs_vdev_async_write_max_active` and friends, 10 per vdev)
 across four vdevs plus sync traffic should stay inside what the bounce pool can

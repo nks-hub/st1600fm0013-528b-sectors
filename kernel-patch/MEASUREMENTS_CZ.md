@@ -6,6 +6,11 @@ Osm disků ST1600FM0013 (IBM `IBM-SSGSSVJ1P6`, firmware 6214) zamčených na
 backplane, 6 Gb/s na linku. Každé číslo níž pochází z běhu na tom stroji, nic
 tady není odhad.
 
+> **Později, 27. 9. 2026:** code review zjistilo, že jediný reset na SAS nebo
+> UNIT ATTENTION mohl tento kernel přimět vrátit špatná data nebo zapsat
+> posunutá data a přitom ohlásit úspěch. Měření platí, kernel, na kterém
+> běžela, je potřeba přeložit znovu. Viz [HARDENING_CZ.md](HARDENING_CZ.md).
+
 ## Tři chyby, které se musely opravit nejdřív
 
 Patch v publikované podobě se nepřeloží a dvě věci, které přeložit jde, sedí na

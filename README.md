@@ -16,7 +16,10 @@ locked to 528-byte sectors and a 6 Gb/s link.
 2. **Kernel patch.** For disks that refuse the reformat. The disk then appears as
    a native 512-byte block device at the cost of 16 bytes per sector. Verified in
    QEMU including cross-validation, see
-   [`kernel-patch/RESULTS.md`](kernel-patch/RESULTS.md).
+   [`kernel-patch/RESULTS.md`](kernel-patch/RESULTS.md). **Build it only with
+   the fixes from [`kernel-patch/HARDENING.md`](kernel-patch/HARDENING.md):**
+   without them a single SAS reset can return wrong data or store shifted data
+   while reporting success.
 
 **12 Gb/s remains unsolved**. That limit lives in the disk firmware. The only
 known route is PC-3000 SAS with its "unlock microprogram" function, which can
@@ -81,6 +84,9 @@ kernel-patch/
   ORIGIN.md                              what we know about the patch
   VERIFICATION.md                        why it could not be used at first
   RESULTS.md                             test results
+  port_universal.py                      ports the patch to 6.8 through 7.0 and fixes it
+  HARDENING.md                           code review: data-integrity fixes, ZFS notes
+  test/                                  QEMU + scsi_debug test suite for the emulation
 ```
 
 Every document has a Czech counterpart with a `_CZ` suffix.

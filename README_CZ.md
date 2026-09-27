@@ -15,7 +15,10 @@ na 528bajtové sektory a 6 Gb/s link.
 2. **Kernel patch.** Pro disky, které reformát odmítnou. Disk se pak objeví jako
    nativní 512bajtové blokové zařízení za cenu 16 bajtů ze sektoru. Ověřeno
    v QEMU včetně křížové validace, viz
-   [`kernel-patch/RESULTS_CZ.md`](kernel-patch/RESULTS_CZ.md).
+   [`kernel-patch/RESULTS_CZ.md`](kernel-patch/RESULTS_CZ.md). **Překládej ho jen
+   s opravami z [`kernel-patch/HARDENING_CZ.md`](kernel-patch/HARDENING_CZ.md):**
+   bez nich může jediný reset na SAS vrátit špatná data nebo zapsat posunutá
+   data a přitom ohlásit úspěch.
 
 **12 Gb/s zůstává nevyřešené** – ten limit je ve firmwaru disku. Jediná známá
 cesta je PC-3000 SAS s funkcí „odemknout mikroprogram“, která umí nahrát
@@ -80,6 +83,9 @@ kernel-patch/
   ORIGIN_CZ.md                           co o patchi víme
   VERIFICATION_CZ.md                     proč ho zatím nelze použít
   RESULTS_CZ.md                          výsledky testů
+  port_universal.py                      portuje patch na 6.8 až 7.0 a opravuje ho
+  HARDENING_CZ.md                        code review: opravy integrity dat, poznámky k ZFS
+  test/                                  testovací sada emulace v QEMU se scsi_debug
 ```
 
 > **`kernel-patch/`** – patch původně cílil na API, které v upstream neexistuje

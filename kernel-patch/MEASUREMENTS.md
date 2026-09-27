@@ -6,6 +6,11 @@ Host: 48 threads, 125 GiB RAM, one SAS3216 controller at P16.12, single-port
 backplane, 6 Gb/s per link. Every number below comes from a run on that
 machine; nothing here is projected.
 
+> **Later, 27 Sep 2026:** a code review found that one SAS reset or unit
+> attention could make this kernel return wrong data or store shifted data
+> while reporting success. The measurements stand; the kernel they ran on
+> should be rebuilt. See [HARDENING.md](HARDENING.md).
+
 ## Three bugs that had to be fixed first
 
 The patch as published does not build, and two of the things it does build are
