@@ -80,6 +80,7 @@ kernel-patch/
   wvg-sd-528.patch                       cizí patch sd driveru, PŮVOD NEZNÁMÝ
   rebase_pve_528_patch.py                jeho rebase nástroj (nenese žádnou z oprav)
   make_pve_patch.sh                      patch pro kernel Proxmoxu se všemi opravami, použij tenhle
+  verify_upgrade.sh                      ověření přechodu na skutečných discích, jen čte
   apply_manual_hunks.py                  můj pokus doaplikovat odmítnuté hunky
   ORIGIN_CZ.md                           co o patchi víme
   VERIFICATION_CZ.md                     proč ho zatím nelze použít
@@ -88,6 +89,9 @@ kernel-patch/
   HARDENING_CZ.md                        code review: opravy integrity dat, poznámky k ZFS
   test/                                  testovací sada emulace v QEMU se scsi_debug
 ```
+
+[CHANGELOG_CZ.md](CHANGELOG_CZ.md) shrnuje všechny změny kernel patche spolu
+s postupy pro build, test, přechod a návrat.
 
 > **`kernel-patch/`** – patch původně cílil na API, které v upstream neexistuje
 > (viz `VERIFICATION_CZ.md`). Po doportování na 6.8 se přeložil a **funguje** – výsledky

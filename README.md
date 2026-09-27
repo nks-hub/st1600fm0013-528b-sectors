@@ -81,6 +81,7 @@ kernel-patch/
   wvg-sd-528.patch                       third-party sd driver patch, PROVENANCE UNKNOWN
   rebase_pve_528_patch.py                its rebase tool (carries none of the fixes)
   make_pve_patch.sh                      Proxmox kernel patch with all fixes, use this instead
+  verify_upgrade.sh                      read-only check of an upgrade on the real disks
   apply_manual_hunks.py                  my attempt to apply the rejected hunks
   ORIGIN.md                              what we know about the patch
   VERIFICATION.md                        why it could not be used at first
@@ -89,6 +90,9 @@ kernel-patch/
   HARDENING.md                           code review: data-integrity fixes, ZFS notes
   test/                                  QEMU + scsi_debug test suite for the emulation
 ```
+
+[CHANGELOG.md](CHANGELOG.md) lists every change to the kernel patch, with the
+build, test, upgrade and rollback procedures.
 
 Every document has a Czech counterpart with a `_CZ` suffix.
 
