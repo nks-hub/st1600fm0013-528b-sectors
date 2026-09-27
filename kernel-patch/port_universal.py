@@ -487,6 +487,38 @@ def harden(text, log):
     return text
 
 
+POOL_CAP_OLD = """	return min_t(unsigned int, max_sectors, SD_528_MAX_HOST_SECTORS);
+}"""
+
+POOL_CAP_NEW = """	max_sectors = min_t(unsigned int, max_sectors, SD_528_MAX_HOST_SECTORS);
+
+	/*
+	 * A request needs all its bounce chunks at once, from a reserve that
+	 * never grows. One larger than the whole reserve can never be served
+	 * and is requeued forever, stalling the disk. Cap it at what the
+	 * reserve holds.
+	 */
+	return min_t(unsigned int, max_sectors,
+		     sd_528_pool_chunks * SD_528_BLOCKS_PER_CHUNK);
+}"""
+
+
+def harden_pool(text, log):
+    """Step 10c: never allow a request larger than the whole bounce reserve."""
+    what = "pool-sized request cap"
+    if "sd_528_pool_chunks * SD_528_BLOCKS_PER_CHUNK" in text:
+        log.append("  %-26s already present" % what)
+        return text
+    m = re.search(r"^static unsigned int sd_528_effective_max_sectors\(void\)\n\{.*?^\}",
+                  text, re.S | re.M)
+    if not m or POOL_CAP_OLD not in m.group(0) or "sd_528_pool_chunks" not in text:
+        log.append("  %-26s anchor not found, SKIPPED" % what)
+        return text
+    body = m.group(0).replace(POOL_CAP_OLD, POOL_CAP_NEW)
+    log.append("  %-26s inserted" % what)
+    return text[:m.start()] + body + text[m.end():]
+
+
 def detect(text):
     """Which queue-limits generation is this tree?
 
@@ -756,6 +788,7 @@ def main():
         log.append("  %-26s clamp anchor not found" % "pool size parameters")
     # 10) hardening, see harden() above
     text = harden(text, log)
+    text = harden_pool(text, log)
     sd_c.write_text(text)
 
     print("\n".join(log))

@@ -16,6 +16,10 @@
 #   make olddefconfig && make -j$(nproc) bzImage
 #   .../test/run-qemu.sh arch/x86/boot/bzImage
 #
+# Scenarios: add t=torture, t=trim, t=eh, t=pool, t=big or t=cdb16 to the
+# extra kernel args (default t=basic); see ./init for what each needs, e.g.
+#   run-qemu.sh bzImage "t=trim scsi_debug.lbpu=1 scsi_debug.lbprz=1"
+#
 # Needs qemu-system-x86_64, busybox-static, cpio and a C compiler.
 set -e
 KERNEL=${1:?usage: run-qemu.sh bzImage [extra kernel args]}
@@ -25,14 +29,16 @@ trap 'rm -rf "$WORK"' EXIT
 
 mkdir -p "$WORK/root/bin" "$WORK/root/proc" "$WORK/root/sys" "$WORK/root/dev" "$WORK/root/tmp"
 cp "$(command -v busybox)" "$WORK/root/bin/"
-for a in sh dd cmp md5sum mount echo cat sleep head od tr grep sync reboot dmesg; do
+for a in sh dd cmp md5sum mount echo cat sleep usleep head od tr grep sync reboot dmesg kill timeout; do
     ln -s busybox "$WORK/root/bin/$a"
 done
 cc -static -O2 -o "$WORK/root/bin/rawrd" "$HERE/rawrd.c"
+cc -static -O2 -o "$WORK/root/bin/blkops" "$HERE/blkops.c"
+cc -static -O2 -pthread -o "$WORK/root/bin/torture" "$HERE/torture.c"
 cp "$HERE/init" "$WORK/root/init"; chmod +x "$WORK/root/init"
 (cd "$WORK/root" && find . | cpio -o -H newc 2>/dev/null | gzip) > "$WORK/initrd.gz"
 
-timeout 900 qemu-system-x86_64 -m 1024 -smp 2 -nographic -no-reboot \
+timeout ${QEMU_TIMEOUT:-900} qemu-system-x86_64 -m 1024 -smp 2 -nographic -no-reboot \
     -kernel "$KERNEL" -initrd "$WORK/initrd.gz" \
     -append "console=ttyS0 quiet loglevel=4 panic=-1 \
              scsi_debug.sector_size=528 scsi_debug.dev_size_mb=64 scsi_debug.physblk_exp=3 \
