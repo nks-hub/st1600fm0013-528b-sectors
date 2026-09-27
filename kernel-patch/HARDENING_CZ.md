@@ -33,6 +33,10 @@ níž).
 
 ## Co udělat
 
+Pro existující pool platí podrobný postup v sekci
+[Přechod poolu zapsaného původním patchem](#přechod-poolu-zapsaného-původním-patchem);
+seznam níž je zkrácená verze.
+
 1. Přeložit kernel s aktualizovaným `port_universal.py` (postup v jeho
    docstringu, nově s `patch --fuzz=3`). Zkontrolovat, že výpis obsahuje
    `hardening  bounce table kept until uninit, per-command context` a
@@ -50,6 +54,75 @@ níž).
 Bootovací parametry zůstávají, jak jsou. Dvě viditelné změny:
 `queue/physical_block_size` teď ukazuje 4096 místo 512 a vypnutí
 `emulate_512_from_fat_sectors` za běhu už disk nesebere (obojí vysvětleno níž).
+
+## Přechod poolu zapsaného původním patchem
+
+Dnešní pool zapsal původní patch. Nový kernel ho musí přečíst přesně jako
+starý, nesmí zapsat nic jinak, než by to zapsal starý, a návrat ke starému
+kernelu musí zůstat možný. Ověřené jsou všechny tři body.
+
+**V kódu.** U příkazu, který doběhne bez chyby, posílá nový kernel disku tytéž
+bajty jako starý: funkce balení a rozbalování, CDB, `transfersize`,
+`underflow` i délka přenosu jsou stejné. Liší se jen to, co se děje po chybě
+(opakování, resid, recovered error), a tři odmítnutí v
+`sd_528_prepare_emulation()`. Žádné z nich se netýká SAS disků na `mpt3sas`:
+ten registruje DIF typy 1 až 3, ale žádný DIX, takže disk s `protection_type`
+0 nedostane integrity profil; jeho `max_segment_size` je 0xffffffff; a virt
+boundary nastavuje jen pro NVMe zařízení za tri-mode HBA. Nový kernel neposílá
+žádný příkaz, který by starý neposílal.
+
+**Na stejných datech, starý a nový ovladač vyměněné za běhu** (`t=xver`: `sd`
+přeložený jako modul dvakrát proti jednomu jádru, disk si obsah drží):
+
+| kontrola | výsledek |
+|---|---|
+| X1 starý zapíše P | OK |
+| X2 nový přečte, co zapsal starý | shodné |
+| X3 načtení nového ovladače na médiu nic nezmění | surový obraz beze změny |
+| X4 stejná data zapsaná novým | surový obraz bajtově shodný se starým, včetně trailerů |
+| X6 zpět na starý: přečte, co zapsal nový | shodné |
+| X7 stejná data zapsaná starým | surový obraz bajtově shodný s novým |
+| X8 znovu dopředu | shodné |
+
+Limity fronty se liší jen ve dvou nápovědách: `physical_block_size` a
+`discard_granularity` jdou z 512 na 4096. Ani jedna nemění čtení existujících
+dat. Pro pool vytvořený s ashift=12 (ověříš přes `zdb -C tank | grep ashift`)
+se nezmění vůbec nic; u ashift=9 by `zpool status` upozornil na nenativní
+velikost bloku a TRIM by vynechával kousky menší než 4 KiB.
+
+**Na skutečném stroji** totéž pro skutečné disky dokáže
+[verify_upgrade.sh](verify_upgrade.sh), a to dřív, než nový kernel cokoli zapíše:
+
+1. Přeložit nový kernel a pustit testovací sadu proti testovacímu buildu téhož
+   stromu (`t=basic`, `t=torture`; `t=xver`, pokud překládáš `sd` jako modul).
+2. Starý kernel nechat nainstalovaný a bootovatelný. Na Proxmoxu:
+   `proxmox-boot-tool kernel pin <nový> --next-boot`, takže nový kernel poběží
+   jen jeden boot a další obyčejný restart je zpátky na starém.
+3. Na starém kernelu: poznamenat si `zpool status -v`, zastavit, co pool
+   používá. Na Proxmoxu navíc zabránit tomu, aby pool naimportoval sám, protože
+   storage plugin (`activate_storage` volá `zpool import`) i jednotka
+   `zfs-import@tank` by ho naimportovaly pro zápis:
+   `pvesm set <storage> --disable 1` a
+   `systemctl disable zfs-import@tank.service` (pokud existuje). Pak
+   `zpool export tank`.
+4. `verify_upgrade.sh snapshot /root/pre.txt [--sample 16] /dev/disk/by-id/...`
+   pro všech osm disků. Nejdřív ověří, že je nový kernel obslouží, a odmítne
+   běžet, pokud je disk ještě v importovaném poolu. Bez `--sample` čte všechno
+   (zhruba hodinu), s `--sample 16` každý 16. GiB a oblasti labelů (minuty).
+5. Restart do nového kernelu. `dmesg | grep Emulating` ukáže řádek pro každý
+   disk. Exportovaný pool se při startu neimportuje.
+6. `verify_upgrade.sh compare /root/pre.txt`. Pokračovat jen při výsledku
+   `IDENTICAL`; jinak restart, který vrátí starý kernel.
+7. `zpool import -o readonly=on tank`, `zpool status -v`: v tomhle režimu se
+   nic nezapisuje. Čtení dat teď zároveň ověřuje kontrolní součty ZFS.
+8. `zpool export tank`, `zpool import tank`, `zpool scrub tank`, pak vrátit
+   krok 3 (`pvesm set <storage> --disable 0`, znovu povolit jednotku). Nový
+   kernel připnout natrvalo, až scrub doběhne čistě.
+
+Návrat je kdykoli jen restart do starého kernelu: formát na disku je v obou
+směrech stejný (X6, X7). Škodu, kterou mohl starý kernel už napáchat během
+resetu, nový kernel neopraví ani nezhorší; najde ji scrub v kroku 8 a na
+mirroru ji opraví.
 
 ## Nálezy
 

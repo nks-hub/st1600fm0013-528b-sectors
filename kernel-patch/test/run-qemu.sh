@@ -19,6 +19,9 @@
 # Scenarios: add t=torture, t=trim, t=eh, t=pool, t=big or t=cdb16 to the
 # extra kernel args (default t=basic); see ./init for what each needs, e.g.
 #   run-qemu.sh bzImage "t=trim scsi_debug.lbpu=1 scsi_debug.lbprz=1"
+# t=xver checks an upgrade from the old patch to the new one and back on the
+# same data; it needs sd and scsi_debug built as modules, see HARDENING.md:
+#   MODS=/path/to/kos run-qemu.sh bzImage t=xver
 #
 # Needs qemu-system-x86_64, busybox-static, cpio and a C compiler.
 set -e
@@ -29,13 +32,16 @@ trap 'rm -rf "$WORK"' EXIT
 
 mkdir -p "$WORK/root/bin" "$WORK/root/proc" "$WORK/root/sys" "$WORK/root/dev" "$WORK/root/tmp"
 cp "$(command -v busybox)" "$WORK/root/bin/"
-for a in sh dd cmp md5sum mount echo cat sleep usleep head od tr grep sync reboot dmesg kill timeout; do
+for a in sh dd cmp md5sum mount echo cat sleep usleep head od tr grep sync reboot dmesg kill timeout insmod rmmod basename cp printf sha256sum cut readlink mktemp sort diff wc ls sed date uname rm; do
     ln -s busybox "$WORK/root/bin/$a"
 done
 cc -static -O2 -o "$WORK/root/bin/rawrd" "$HERE/rawrd.c"
 cc -static -O2 -o "$WORK/root/bin/blkops" "$HERE/blkops.c"
 cc -static -O2 -pthread -o "$WORK/root/bin/torture" "$HERE/torture.c"
 cp "$HERE/init" "$WORK/root/init"; chmod +x "$WORK/root/init"
+cp "$HERE/../verify_upgrade.sh" "$WORK/root/bin/"
+# t=xver: MODS names a directory with sd-old.ko, sd-new.ko and scsi_debug.ko
+if [ -n "$MODS" ]; then mkdir -p "$WORK/root/mods"; cp "$MODS"/*.ko "$WORK/root/mods/"; fi
 (cd "$WORK/root" && find . | cpio -o -H newc 2>/dev/null | gzip) > "$WORK/initrd.gz"
 
 timeout ${QEMU_TIMEOUT:-900} qemu-system-x86_64 -m 1024 -smp 2 -nographic -no-reboot \

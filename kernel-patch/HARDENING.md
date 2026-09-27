@@ -34,6 +34,10 @@ same (test T17 below).
 
 ## What to do
 
+For a pool that already exists, follow the step-by-step upgrade in
+[Upgrading a pool written by the original patch](#upgrading-a-pool-written-by-the-original-patch);
+the list below is the short version.
+
 1. Rebuild the kernel with the updated `port_universal.py` (usage in its
    docstring, now with `patch --fuzz=3`). Check that the log contains
    `hardening  bounce table kept until uninit, per-command context` and
@@ -53,6 +57,78 @@ Boot parameters stay as they are. Two visible changes:
 `queue/physical_block_size` now reads 4096 instead of 512, and clearing
 `emulate_512_from_fat_sectors` at runtime no longer takes a disk away (both
 explained below).
+
+## Upgrading a pool written by the original patch
+
+The pool that exists today was written by the original patch. The new kernel
+must read it exactly as the old one did, must not write anything the old one
+would have written differently, and going back to the old kernel must stay
+possible. All three were checked.
+
+**In the code.** On a command that completes without error, the new kernel
+sends the drive the same bytes as the old one: the pack and unpack functions,
+the CDB, `transfersize`, `underflow` and the transfer length are the same. What
+differs is what happens after an error (retry, resid, recovered error) and the
+three refusals in `sd_528_prepare_emulation()`, none of which applies to SAS
+drives on `mpt3sas`: it registers DIF types 1 to 3 but no DIX, so a disk with
+`protection_type` 0 gets no integrity profile; its `max_segment_size` is
+0xffffffff; and it sets a virt boundary only for NVMe devices behind a
+tri-mode HBA. The new kernel issues no command the old one did not.
+
+**On the same data, old and new driver swapped at runtime** (`t=xver`: `sd`
+built as a module twice against one kernel, the disk keeps its contents):
+
+| check | result |
+|---|---|
+| X1 old writes P | OK |
+| X2 new reads what old wrote | identical |
+| X3 loading the new driver changes nothing on the medium | raw image unchanged |
+| X4 the same data written by new | raw image byte-identical to old's, trailers included |
+| X6 back to old: reads what new wrote | identical |
+| X7 the same data written by old | raw image byte-identical to new's |
+| X8 forward again | identical |
+
+The queue limits differ in two hints only: `physical_block_size` and
+`discard_granularity` go from 512 to 4096. Neither changes how existing data is
+read. For a pool created with ashift=12 (check with
+`zdb -C tank | grep ashift`) nothing changes at all; for ashift=9, `zpool
+status` would note a non-native block size and TRIM would skip fragments
+smaller than 4 KiB.
+
+**On the real machine**, [verify_upgrade.sh](verify_upgrade.sh) proves the same
+thing for the actual disks before the new kernel writes anything:
+
+1. Build the new kernel and run the test suite on a test build of the same tree
+   (`t=basic`, `t=torture`; `t=xver` if you build `sd` as a module).
+2. Keep the old kernel installed and bootable. On Proxmox:
+   `proxmox-boot-tool kernel pin <new> --next-boot`, so the new kernel is used
+   for one boot only and the next plain reboot is back on the old one.
+3. On the old kernel: note `zpool status -v`, stop what uses the pool. On
+   Proxmox also keep it from importing the pool behind your back, because both
+   the storage plugin (`activate_storage` runs `zpool import`) and the
+   `zfs-import@tank` unit would import it read-write:
+   `pvesm set <storage> --disable 1` and
+   `systemctl disable zfs-import@tank.service` (if it exists). Then
+   `zpool export tank`.
+4. `verify_upgrade.sh snapshot /root/pre.txt [--sample 16] /dev/disk/by-id/...`
+   for the eight disks. It checks first that the new kernel will serve them,
+   and refuses to run if a disk is still in an imported pool. Without
+   `--sample` it reads everything (about an hour); with `--sample 16` it reads
+   every 16th GiB plus the label areas (minutes).
+5. Reboot into the new kernel. `dmesg | grep Emulating` shows one line per
+   disk. The exported pool is not imported at boot.
+6. `verify_upgrade.sh compare /root/pre.txt`. Go on only if it says
+   `IDENTICAL`; otherwise reboot, which brings back the old kernel.
+7. `zpool import -o readonly=on tank`, `zpool status -v`: nothing is written
+   in this mode. Reading data now also verifies ZFS checksums.
+8. `zpool export tank`, `zpool import tank`, `zpool scrub tank`, then undo
+   step 3 (`pvesm set <storage> --disable 0`, re-enable the unit). Pin the new
+   kernel permanently once the scrub is clean.
+
+Going back is a reboot into the old kernel at any point: the on-disk format is
+the same in both directions (X6, X7). Damage the old kernel may already have
+done during a reset is not repaired by the new kernel, and is not made worse;
+the scrub in step 8 is what finds it, and on a mirror repairs it.
 
 ## Findings
 

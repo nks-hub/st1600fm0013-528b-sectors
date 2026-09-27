@@ -7,12 +7,92 @@
 mount -t proc p /proc; mount -t sysfs s /sys; mount -t devtmpfs d /dev 2>/dev/null
 mount -t debugfs d /sys/kernel/debug; mount -t tmpfs t /tmp
 echo "=== TESTSTART"
+T=basic
+for a in $(cat /proc/cmdline); do case $a in t=*) T=${a#t=};; esac; done
+
+if [ $T = xver ]; then
+# Old and new sd_mod over the same disk, swapped at runtime. Needs a kernel
+# with BLK_DEV_SD=m and SCSI_DEBUG=m, and /mods/{sd-old,sd-new,scsi_debug}.ko
+# (MODS= for run-qemu.sh). The disk keeps its contents across the swaps, so
+# this is exactly an upgrade from the old kernel to the new one and back.
+SDP="emulate_512_from_fat_sectors=1 emulate_528_max_sectors=256 emulate_528_queue_depth=32 emulate_528_pool_chunks=4608 emulate_528_pool_contexts=512"
+insmod /mods/scsi_debug.ko sector_size=528 dev_size_mb=64 physblk_exp=3 lbpu=1 lbprz=1
+load() { insmod /mods/sd-$1.ko $SDP; i=0; while [ ! -b /dev/sda ] && [ $i -lt 50 ]; do usleep 100000; i=$((i+1)); done; sleep 1; }
+unload() { sync; rmmod sd_mod; sleep 1; }
+props() {
+  r="$1:"; for f in size queue/logical_block_size queue/physical_block_size queue/max_sectors_kb \
+      device/queue_depth queue/discard_max_bytes queue/discard_granularity \
+      queue/write_zeroes_max_bytes queue/rotational integrity/format; do
+    r="$r $(basename $f)=$(cat /sys/block/sda/$f 2>/dev/null)"; done; echo "$r"
+}
+hdev() { dd if=/dev/sda bs=64k iflag=direct 2>/dev/null | md5sum | head -c 32; }
+hraw() { rawrd /dev/sda 0 $(cat /sys/block/sda/size) | md5sum | head -c 32; }
+ck() { [ "$2" = "$3" ] && echo "$1: OK" || echo "$1: FAIL ($2 != $3)"; }
+
+N=127100
+dd if=/dev/urandom of=/tmp/P bs=512 count=$N 2>/dev/null
+dd if=/dev/urandom of=/tmp/Q bs=512 count=8192 2>/dev/null
+cp /tmp/P /tmp/E; dd if=/tmp/Q of=/tmp/E bs=512 seek=50001 conv=notrunc 2>/dev/null
+HP=$(md5sum < /tmp/P | head -c 32); HE=$(md5sum < /tmp/E | head -c 32)
+
+load old; props old
+dd if=/tmp/P of=/dev/sda bs=128k oflag=direct 2>/dev/null
+dd if=/tmp/P of=/dev/sda bs=512 skip=2049 seek=2049 count=17 oflag=direct 2>/dev/null
+ck "X1 old kernel writes and reads P" $(hdev) $HP
+R_OLD_P=$(hraw); echo "   raw image written by old: $R_OLD_P"
+unload
+
+load new; props new
+ck "X2 new kernel reads data written by old" $(hdev) $HP
+ck "X3 loading new changed nothing on the medium" $(hraw) $R_OLD_P
+dd if=/tmp/P of=/dev/sda bs=1M oflag=direct 2>/dev/null
+dd if=/tmp/P of=/dev/sda bs=4k skip=3 seek=3 count=1000 oflag=direct 2>/dev/null
+dd if=/tmp/P of=/dev/sda bs=512 skip=2049 seek=2049 count=17 oflag=direct 2>/dev/null
+ck "X4 same data written by new: raw image identical to old's, trailers included" $(hraw) $R_OLD_P
+dd if=/tmp/Q of=/dev/sda bs=512 seek=50001 oflag=direct 2>/dev/null
+ck "X5 new kernel writes Q over P" $(hdev) $HE
+R_NEW_E=$(hraw)
+unload
+
+load old; props old
+ck "X6 rollback: old kernel reads what new wrote" $(hdev) $HE
+dd if=/tmp/E of=/dev/sda bs=128k oflag=direct 2>/dev/null
+ck "X7 same data written by old: raw image identical to new's" $(hraw) $R_NEW_E
+unload
+
+load new
+ck "X8 forward again: new reads old's rewrite" $(hdev) $HE
+unload
+echo "=== TESTEND"
+dmesg | grep -E "KASAN|BUG:|WARNING:|Oops" | head -20
+reboot -f
+fi
+
+if [ $T = xverify ]; then
+# verify_upgrade.sh itself: snapshot under the old sd_mod, compare under the
+# new one, then change one sector and make sure compare notices.
+SDP="emulate_512_from_fat_sectors=1 emulate_528_max_sectors=256"
+insmod /mods/scsi_debug.ko sector_size=528 dev_size_mb=64 virtual_gb=3 physblk_exp=3
+load() { insmod /mods/sd-$1.ko $SDP; i=0; while [ ! -b /dev/sda ] && [ $i -lt 50 ]; do usleep 100000; i=$((i+1)); done; sleep 1; }
+dd if=/dev/urandom of=/tmp/P bs=1M count=64 2>/dev/null
+load old
+dd if=/tmp/P of=/dev/sda bs=1M oflag=direct 2>/dev/null; sync
+sh /bin/verify_upgrade.sh snapshot /tmp/snap.txt --sample 3 /dev/sda; echo "   snapshot exit $?"
+grep -c . /tmp/snap.txt
+rmmod sd_mod; sleep 1; load new
+sh /bin/verify_upgrade.sh compare /tmp/snap.txt; echo "V1 compare under new kernel exit $? (0 expected)"
+dd if=/dev/urandom of=/dev/sda bs=512 seek=12345 count=1 oflag=direct 2>/dev/null
+sh /bin/verify_upgrade.sh compare /tmp/snap.txt; echo "V2 compare after changing one sector exit $? (1 expected)"
+sh /bin/verify_upgrade.sh snapshot /tmp/snap.txt /dev/sda >/dev/null 2>&1; echo "V3 refuses to overwrite an existing snapshot: exit $? (2 expected)"
+echo "=== TESTEND"
+dmesg | grep -E "KASAN|BUG:|WARNING:|Oops" | head -20
+reboot -f
+fi
+
 echo "size=$(cat /sys/block/sda/size) lbs=$(cat /sys/block/sda/queue/logical_block_size)" \
      "max_kb=$(cat /sys/block/sda/queue/max_sectors_kb) qd=$(cat /sys/block/sda/device/queue_depth)"
 E=/sys/kernel/debug/scsi_debug/0:0:0:0/error
 D=/sys/bus/pseudo/drivers/scsi_debug
-T=basic
-for a in $(cat /proc/cmdline); do case $a in t=*) T=${a#t=};; esac; done
 echo "scenario: $T"
 
 # random faults while I/O runs: resets, unit attentions, host busy, short
