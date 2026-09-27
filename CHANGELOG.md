@@ -20,6 +20,48 @@ Contents:
 
 ## Changes
 
+### 2026-09-27: checked against the Proxmox kernels
+
+Taken from the Proxmox kernel packaging git (`git.proxmox.com/git/pve-kernel.git`):
+
+| series | latest version | branch, date | Ubuntu base | upstream |
+|---|---|---|---|---|
+| **7.0** | **`proxmox-kernel-7.0.14-20-pve`** | `master`, 2026-09-24 | `Ubuntu-7.0.0-39.39` | 7.0.14 |
+| 6.17 | `proxmox-kernel-6.17.13-21-pve` | `trixie-6.17`, 2026-07-28 | `Ubuntu-hwe-6.17-6.17.0-42.42` | 6.17.13 |
+
+**The patch fits both series with no manual work.** Procedure B
+(`make_pve_patch.sh`) runs through on its own, and every step of
+`port_universal.py` finds its anchor.
+
+The tests ran on the Ubuntu 38.38 sources, also upstream 7.0.14. The exact
+tag `Ubuntu-7.0.0-39.39` (commit `874594fa`, the one Proxmox pins) was fetched
+from the Proxmox mirror and compared: `sd.c` and `sd.h` are byte-identical to
+38.38, and the `9999-...` patch generated from it is identical in content to
+the tested one. Between 38.38 and 39.39 only two things change nearby.
+`scsi_lib.c` zeroes the padding bytes under `dma_pad_mask`, which only ATAPI
+uses and which happens before the emulation swaps the buffer. `scsi_error.c`
+reads a power-management flag differently in the EH. Neither touches the
+emulation.
+
+| check | 7.0.14 (Ubuntu 38.38 / 39.39) | 6.17.13 (Ubuntu 42.42) |
+|---|---|---|
+| `make_pve_patch.sh`, all steps | OK | OK |
+| queue limits generation | `ptr` | `ptr` (Ubuntu took the change from 7.0) |
+| resulting `sd.c` against the tested 7.0 | differs only by 2 unrelated Ubuntu lines | - |
+| build `sd.o` with `W=1` | no warnings | no warnings |
+| `basic`, `trim`, `big`, `cdb16`, `eh`, `pool` | OK (T6/T7 comparison only) | `basic`, `trim`, `big` OK |
+| `torture` with faults | 0 bad, 0 failed | 0 bad, 0 failed (512-byte iovecs) |
+
+None of the 124 Proxmox patches in the 7.0 series touches `drivers/scsi/sd.c`,
+`sd.h`, `scsi_lib.c` or the block layer. The only one about `mpt3sas` (0122)
+changes a cpumask computation in `mpt3sas_base.c`, not the data path. Our
+`9999-...` patch therefore applies to Ubuntu's `sd.c` exactly.
+
+On 6.17 the torture run with 64-byte iovecs gets `EINVAL`. That is the 6.17
+block layer, which wants O_DIRECT segments in multiples of 512 bytes, refusing
+the request before it reaches the driver. It has nothing to do with ZFS, which
+submits whole pages.
+
 ### 2026-09-27: emulation hardening (branch `claude/clever-dirac-82ozij`)
 
 Starting point: `master` at `b2d3359`, tagged locally as
@@ -144,15 +186,29 @@ make -j$(nproc) bzImage modules      # or bindeb-pkg for .deb packages
 **Do not use** `rebase_pve_528_patch.py`; it carries none of the fixes.
 
 ```bash
-cd pve-kernel                         # Proxmox kernel packaging repository
-git submodule update --init           # pristine submodules/ubuntu-kernel
+apt install devscripts
+git clone https://git.proxmox.com/git/pve-kernel.git     # master = the 7.0 series
+cd pve-kernel                                            # (trixie-6.17 for 6.17)
+make submodule                                           # pristine submodules/ubuntu-kernel
+
+# no Proxmox patch may change sd.c/sd.h; this must print nothing
+grep -l 'drivers/scsi/sd\.[ch]' patches/kernel/*.patch
+
 /path/kernel-patch/make_pve_patch.sh submodules/ubuntu-kernel \
     patches/kernel/9999-wvg-sd-528-translation.patch
+
+make build-dir-fresh
+mk-build-deps -ir proxmox-kernel-*/debian/control        # build dependencies
+make deb
 ```
 
 The script works on a copy of `sd.c`/`sd.h` and leaves the tree alone. If any
 fix is missing it writes nothing. At the end it checks that the patch applies
-to the tree. Then build the packages as the `pve-kernel` README describes.
+to the tree. The Proxmox build applies `patches/kernel/*.patch` in alphabetical
+order with `patch --batch`, so `9999-...` goes last, and a mismatch stops the
+build instead of producing a wrong kernel. If the `grep` above prints anything,
+make the patch from the directory with the Proxmox patches already applied (the
+build dir after `make build-dir-fresh`) instead of from the submodule.
 
 ## Procedure C: testing before deployment
 

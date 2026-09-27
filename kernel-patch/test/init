@@ -93,7 +93,7 @@ echo "size=$(cat /sys/block/sda/size) lbs=$(cat /sys/block/sda/queue/logical_blo
      "max_kb=$(cat /sys/block/sda/queue/max_sectors_kb) qd=$(cat /sys/block/sda/device/queue_depth)"
 E=/sys/kernel/debug/scsi_debug/0:0:0:0/error
 D=/sys/bus/pseudo/drivers/scsi_debug
-echo "scenario: $T"
+echo "scenario: $T dma_alignment=$(cat /sys/block/sda/queue/dma_alignment 2>/dev/null)"
 
 # random faults while I/O runs: resets, unit attentions, host busy, short
 # transfers, transport errors, recovered errors and rescans
@@ -129,10 +129,18 @@ pat_chk() { # $1 name $2 start $3 count (sectors): matches /tmp/pat?
 
 case $T in
 torture)
+  # 64-byte iovecs reach the driver only on kernels that allow sub-sector
+  # O_DIRECT segments (7.0); older ones fail them with EINVAL in the block
+  # layer before the driver sees them, so T20b repeats the run with 512.
   torture /dev/sda 4 60 64 & tp=$!
   sleep 5; inject_loop & ip=$!
   wait $tp; echo "T20 torture exit: $?"; touch /tmp/stop; wait $ip
+  rm -f /tmp/stop
+  torture /dev/sda 4 60 512 & tp=$!
+  sleep 5; inject_loop & ip=$!
+  wait $tp; echo "T20b torture, 512-byte iovecs, exit: $?"; touch /tmp/stop; wait $ip
   torture /dev/sda 8 20 64; echo "T21 torture, no faults, exit: $?"
+  torture /dev/sda 8 20 512; echo "T22 torture, no faults, 512-byte iovecs, exit: $?"
   ;;
 trim)
   echo "discard_max=$(cat /sys/block/sda/queue/discard_max_bytes) gran=$(cat /sys/block/sda/queue/discard_granularity)" \

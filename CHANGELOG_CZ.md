@@ -20,6 +20,45 @@ Obsah:
 
 ## Změny
 
+### 2026-09-27: ověření na kernelech Proxmoxu
+
+Zjištěno z gitu balíčkování kernelu Proxmoxu (`git.proxmox.com/git/pve-kernel.git`):
+
+| řada | poslední verze | větev, datum | základ Ubuntu | upstream |
+|---|---|---|---|---|
+| **7.0** | **`proxmox-kernel-7.0.14-20-pve`** | `master`, 2026-09-24 | `Ubuntu-7.0.0-39.39` | 7.0.14 |
+| 6.17 | `proxmox-kernel-6.17.13-21-pve` | `trixie-6.17`, 2026-07-28 | `Ubuntu-hwe-6.17-6.17.0-42.42` | 6.17.13 |
+
+**Patch sedí na obě řady bez ruční práce.** Postup B (`make_pve_patch.sh`)
+proběhne sám a všechny kroky `port_universal.py` najdou své kotvy.
+
+Testy běžely na zdrojácích Ubuntu 38.38, kde je upstream také 7.0.14. Přesný
+tag `Ubuntu-7.0.0-39.39` (commit `874594fa`, ten, který Proxmox připíná) jsem
+stáhl ze zrcadla Proxmoxu a porovnal: `sd.c` i `sd.h` jsou s 38.38 bajtově
+shodné a patch `9999-…` z něj vygenerovaný je obsahově totožný s otestovaným.
+Mezi 38.38 a 39.39 se v okolí mění jen dvě věci. Ve `scsi_lib.c` se vynulují
+doplňovací bajty při `dma_pad_mask`, což se týká jen ATAPI a proběhne dřív,
+než emulace vymění buffer. Ve `scsi_error.c` se jinak čte příznak
+power-managementu v EH. Ani jedno se emulace nedotýká.
+
+| kontrola | 7.0.14 (Ubuntu 38.38 / 39.39) | 6.17.13 (Ubuntu 42.42) |
+|---|---|---|
+| `make_pve_patch.sh`, všechny kroky | OK | OK |
+| generace queue limits | `ptr` | `ptr` (Ubuntu převzal změnu ze 7.0) |
+| výsledný `sd.c` proti otestovanému 7.0 | liší se jen 2 nesouvisejícími řádky Ubuntu | – |
+| build `sd.o` s `W=1` | bez varování | bez varování |
+| `basic`, `trim`, `big`, `cdb16`, `eh`, `pool` | OK (T6/T7 jen srovnávací) | `basic`, `trim`, `big` OK |
+| `torture` s chybami | 0 špatných, 0 neúspěšných | 0 špatných, 0 neúspěšných (512B iovecs) |
+
+Žádný ze 124 patchů Proxmoxu v řadě 7.0 nesahá na `drivers/scsi/sd.c`,
+`sd.h`, `scsi_lib.c` ani na blokovou vrstvu. Jediný, který se týká
+`mpt3sas` (0122), mění výpočet cpumasky v `mpt3sas_base.c`, ne datovou cestu.
+Náš `9999-…` patch se proto aplikuje přesně na `sd.c` z Ubuntu.
+
+Na 6.17 vrací torture se 64bajtovými iovecs `EINVAL`. To dělá bloková vrstva
+6.17, která pro O_DIRECT chce segmenty v násobcích 512 B, ještě než se
+požadavek dostane k ovladači. Se ZFS to nesouvisí, ZFS posílá celé stránky.
+
 ### 2026-09-27: hardening emulace (větev `claude/clever-dirac-82ozij`)
 
 Výchozí stav: `master` na `b2d3359`, lokálně označený tagem
@@ -141,15 +180,29 @@ make -j$(nproc) bzImage modules      # nebo bindeb-pkg pro .deb balíčky
 `rebase_pve_528_patch.py` **nepoužívat**, nenese žádnou opravu.
 
 ```bash
-cd pve-kernel                         # repozitář balíčkování kernelu Proxmoxu
-git submodule update --init           # čistý submodules/ubuntu-kernel
+apt install devscripts
+git clone https://git.proxmox.com/git/pve-kernel.git     # master = řada 7.0
+cd pve-kernel                                            # (trixie-6.17 pro 6.17)
+make submodule                                           # čistý submodules/ubuntu-kernel
+
+# žádný patch Proxmoxu nesmí měnit sd.c/sd.h; výstup musí být prázdný
+grep -l 'drivers/scsi/sd\.[ch]' patches/kernel/*.patch
+
 /cesta/kernel-patch/make_pve_patch.sh submodules/ubuntu-kernel \
     patches/kernel/9999-wvg-sd-528-translation.patch
+
+make build-dir-fresh
+mk-build-deps -ir proxmox-kernel-*/debian/control        # build závislosti
+make deb
 ```
 
 Skript pracuje na kopii `sd.c`/`sd.h`, strom nemění. Když některá oprava chybí,
-nic nezapíše. Na konci ověří, že patch jde na strom aplikovat. Potom sestav
-balíčky podle README repozitáře `pve-kernel`.
+nic nezapíše. Na konci ověří, že patch jde na strom aplikovat. Build Proxmoxu
+aplikuje `patches/kernel/*.patch` v abecedním pořadí přes `patch --batch`,
+takže `9999-…` jde poslední a při nesouladu se build zastaví, místo aby
+vyrobil špatný kernel. Kdyby `grep` výš něco vypsal, patch vyrob z adresáře
+s už aplikovanými patchi Proxmoxu (build-dir po `make build-dir-fresh`)
+místo ze submodulu.
 
 ## Postup C: test před nasazením
 

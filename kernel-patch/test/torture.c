@@ -10,6 +10,10 @@
  * bytes (default 64, the SCSI dma_alignment + 1), so 512-byte sectors
  * straddle segment boundaries.
  *
+ * Kernels before 7.0 reject O_DIRECT iovecs that are not a multiple of the
+ * logical block size with EINVAL before the driver sees them; use ALIGN 512
+ * there, or read the failures as that.
+ *
  * A write that fails leaves its sectors undefined; they are skipped until
  * written again. A read that fails is counted, not verified. Exit status is 1
  * if any sector read back wrong.
@@ -68,6 +72,15 @@ static const char *judge(const uint8_t *p, uint64_t lba, uint32_t gen)
 	if (q[0] < (uint64_t)nthreads * region + 16)
 		return "another sector's data";
 	return "garbage/shifted";
+}
+
+static void report(const char *what, ssize_t r, size_t want)
+{
+	static int shown;
+
+	if (__sync_fetch_and_add(&shown, 1) < 5)
+		fprintf(stderr, "%s failed: returned %zd of %zu, %s\n", what, r, want,
+			r < 0 ? strerror(errno) : "short");
 }
 
 static void split_iov(struct iovec *iov, int *niov, uint8_t *buf, size_t len,
@@ -137,14 +150,17 @@ static void *worker(void *arg)
 			for (uint64_t i = 0; i < n; i++)
 				gen[s + i] = r == (ssize_t)(n * SEC) ?
 					((uint64_t *)(buf + i * SEC))[1] : UNDEF;
-			if (r != (ssize_t)(n * SEC))
+			if (r != (ssize_t)(n * SEC)) {
+				report("pwritev", r, n * SEC);
 				we++;
+			}
 			wr++;
 		} else {
 			memset(buf, 0xa5, n * SEC);
 			r = preadv(fd, iov, niov, (base + s) * SEC);
 			rd++;
 			if (r != (ssize_t)(n * SEC)) {
+				report("preadv", r, n * SEC);
 				re++;
 				continue;
 			}
