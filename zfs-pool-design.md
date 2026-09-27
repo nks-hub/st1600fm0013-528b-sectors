@@ -156,10 +156,13 @@ out at import time.
 
 **The kernel patch has to come along.** Proxmox ships its own kernel, so the
 emulation must be rebuilt there. `kernel-patch/port_universal.py` detects the
-queue-limits generation, so it should handle the PVE kernel the same way it
-handles 7.0; the repository also carries the upstream `rebase_pve_528_patch.py`,
-whose target path `patches/kernel/9999-wvg-sd-528-translation.patch` is the
-Proxmox packaging convention.
+queue-limits generation (checked on 6.8, 6.14, 6.17 and 7.0), and
+`kernel-patch/make_pve_patch.sh` turns the pristine `submodules/ubuntu-kernel`
+of the PVE packaging into `patches/kernel/9999-wvg-sd-528-translation.patch`
+with every fix from `kernel-patch/HARDENING.md`. Do not use the upstream
+`rebase_pve_528_patch.py` for this: it rebases the raw patch without any of
+those fixes. Run `kernel-patch/test/run-qemu.sh` against a test build of the
+same tree before rebooting into it.
 
 Without the patch the pool is unimportable, because every member disk reports
 zero bytes. That is worth writing on the case.

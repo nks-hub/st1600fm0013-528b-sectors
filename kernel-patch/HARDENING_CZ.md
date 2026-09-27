@@ -34,8 +34,11 @@ níž).
 ## Co udělat
 
 1. Přeložit kernel s aktualizovaným `port_universal.py` (postup v jeho
-   docstringu, nově s `patch --fuzz=3`). Zkontrolovat, že výpis končí řádkem
-   `hardening  bounce table kept until uninit, per-command context`.
+   docstringu, nově s `patch --fuzz=3`). Zkontrolovat, že výpis obsahuje
+   `hardening  bounce table kept until uninit, per-command context` a
+   `pool-sized request cap  inserted`. Pro balíčkování Proxmoxu vyrobí
+   [make_pve_patch.sh](make_pve_patch.sh) z čistého `submodules/ubuntu-kernel`
+   hotový `patches/kernel/9999-wvg-sd-528-translation.patch` se všemi opravami.
 2. Před restartem serveru pustit [test/run-qemu.sh](test/run-qemu.sh) proti
    testovacímu buildu téhož stromu. Všechno kromě T6 a T7 musí hlásit OK.
 3. Po restartu spustit `zpool scrub tank` a pak `zpool status -v`. To je
@@ -63,6 +66,8 @@ Bootovací parametry zůstávají, jak jsou. Dvě viditelné změny:
 | 9 | střední | `port_universal.py` považoval hunk 1 za přítomný, i když byl odmítnutý (hledal `sd_528_page_pool`, které přidává i hunk 12); s `--fuzz` skončil strop max_dev_sectors na 6.8 v komentáři a nikdy neplatil | build | ano |
 | 10 | nízká | kontrola zarovnání v sd_done() počítala 528bajtový resid aritmetikou pro mocniny dvou | z kódu | ano, u emulovaných příkazů se přeskakuje |
 | 11 | nízká | vytvoření poolů po `--fuzz` sedělo mezi alokací `sd_page_pool` a testem na NULL | z kódu | ano |
+| 12 | střední | bounce rezerva menší než jeden požadavek maximální velikosti disk natrvalo zablokuje: požadavek se donekonečna vrací do fronty, proces visí ve stavu D a nejde zabít | ano, T50 | ano, krok 10c |
+| 13 | střední | build recept v RESULTS_CZ.md i `rebase_pve_528_patch.py` pro Proxmox vyrobí kernel bez jakékoli z těchto oprav | z dokumentace | recept označen jako překonaný, přidán `make_pve_patch.sh` |
 
 ### 1. Cesta opakování
 
@@ -186,6 +191,72 @@ ERROR. Projdou obě verze.
 `patch --fuzz=3`. Každý strom přeloží `sd.o` s `W=1` bez varování a druhý běh
 nic nezmění. Na 7.0 je výsledek bajtově shodný se stromem, na kterém běžely
 testy v QEMU.
+
+## Druhé kolo: torture, TRIM, obsluha chyb
+
+První kolo testovalo vždy jednu chybu. Druhé přidává
+[test/torture.c](test/torture.c): několik vláken dělá náhodné O_DIRECT zápisy
+a čtení (1 až 1024 sektorů) proti stínové kopii, která zná generaci každého
+sektoru. Špatné čtení tak prozradí, jestli dostalo stará data, posunutá data,
+nebo data jiného sektoru. Buffery jsou rozdělené do iovecs po 64 bajtech, což
+je SCSI `dma_alignment`, takže 512bajtové sektory přesahují přes hranice
+segmentů. To musí smyčky balení a rozbalování zvládnout, a protože ZFS nic
+takového nevytváří, jinak by to nic neprověřilo. Během běhu smyčka průběžně
+vkládá resety, UNIT ATTENTION, host busy, zkrácené přenosy, chyby transportu a
+recovered errors a disk rescanuje. Scénáře se volí přes `t=` na příkazové
+řádce kernelu, viz [test/run-qemu.sh](test/run-qemu.sh).
+
+| scénář | 7.0 bez opravy | 7.0 s opravou |
+|---|---|---|
+| torture, 4 vlákna, 60 s, náhodné chyby | **44 426 špatných sektorů**, mezi nimi data jiných sektorů | 8 733 zápisů, 5 848 čtení, 0 špatných |
+| torture, 8 vláken, bez chyb, iovecs po 64 B | 0 špatných | 0 špatných |
+| torture s 2MiB požadavky (34 segmentů) a chybami | **špatné sektory, data jiných sektorů** | 0 špatných |
+| 2MiB čtení + DID_RESET | **špatná data** | OK |
+| READ(16)/WRITE(16) nad 2^32 bloky + reset/UA | **READ(16) špatná data** | OK |
+| timeout příkazu, abort v EH, opakování (čtení i zápis) | OK | OK |
+| host busy a nové zařazení do fronty při zápisu | OK | OK |
+| torture během rescanu každých 50 ms | OK | OK |
+| discard: rozsah čte nuly, sousedé nedotčení, surový 528B blok nulový | OK | OK |
+| BLKZEROOUT (WRITE SAME je vypnutý, tedy obyčejné zápisy) | OK | OK |
+| discard nezarovnaný na 4 KiB, sousedé nedotčení | OK | OK |
+| 1MiB čtení, pool 8 chunků (potřeba 17) | nespuštěno | před 10c: **navždy zaseklé**; po: OK |
+
+„Data jiných sektorů“ jsou nejhorší druh chyby: bounce buffer nesouvisejícího
+požadavku, klidně pro jiný disk, vrácený jako obsah tohoto sektoru.
+
+Co tohle kolo rozhodlo pro ZFS:
+
+- **TRIM je bezpečný.** UNMAP nese jen rozsahy LBA a prochází rovnou. Discard
+  se nikdy nedotkne sektoru mimo svůj rozsah a zahozené sektory se čtou jako
+  nuly přes emulaci i nativně. `autotrim=on` je v pořádku.
+- **Chování při výpadku napájení je jako u nativního disku.** Každý 512bajtový
+  sektor hostitele leží v právě jednom 528bajtovém sektoru disku a nic se
+  nečte, nemění a nezapisuje zpátky, takže roztržený zápis se roztrhne přesně
+  jako nativně. FLUSH a FUA emulace nemění.
+- **Timeouty a error handler** bounce tabulku zachovají: EH si datový buffer
+  příkazu kolem vlastních příkazů uloží a pak ho vrátí.
+
+### 12. Rezerva menší než jeden požadavek
+
+`emulate_528_pool_chunks` se ořezává na 1..65536, ale nic ho nesvazovalo
+s velikostí požadavku. 1MiB požadavek potřebuje najednou 17 chunků z rezervy,
+která nikdy neroste. Když jich je v poolu méně, `mempool_alloc(GFP_ATOMIC)`
+selže pokaždé, požadavek se vrátí do fronty a tak pořád dokola. Proces, který
+na něj čeká, visí ve stavu D, `timeout` ho nezabije a disk nejde odpojit.
+Krok 10c omezí velikost požadavku na to, co rezerva unese (T50: s 8 chunky
+klesne strop na 496 KiB a čtení doběhne). Dostane se sem jen špatná
+konfigurace, ale selhání je úplné.
+
+### 13. Dvě cesty k buildu bez oprav
+
+Build recept v [RESULTS_CZ.md](RESULTS_CZ.md) spouští `port_to_68.py` a
+`rebase_pve_528_patch.py` přenáší pro Proxmox syrový patch. Ani jedno nenese
+žádnou opravu z tohoto dokumentu. Recept je teď označený jako překonaný a místo
+rebase nástroje je tu [make_pve_patch.sh](make_pve_patch.sh): pracuje na kopii
+`sd.c`/`sd.h` z čistého stromu, aplikuje patch a `port_universal.py`, odmítne
+cokoli zapsat, pokud některá oprava chybí, a ověří, že výsledek jde na strom
+aplikovat. Pro 7.0 jeho výstup bajt po bajtu odpovídá otestovanému stromu,
+funguje i na 6.17.
 
 ## Kompatibilita se stávajícími daty
 

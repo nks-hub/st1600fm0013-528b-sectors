@@ -35,8 +35,12 @@ same (test T17 below).
 ## What to do
 
 1. Rebuild the kernel with the updated `port_universal.py` (usage in its
-   docstring, now with `patch --fuzz=3`). Check that the log ends with
-   `hardening  bounce table kept until uninit, per-command context`.
+   docstring, now with `patch --fuzz=3`). Check that the log contains
+   `hardening  bounce table kept until uninit, per-command context` and
+   `pool-sized request cap  inserted`. For the Proxmox packaging,
+   [make_pve_patch.sh](make_pve_patch.sh) turns a pristine
+   `submodules/ubuntu-kernel` into a ready
+   `patches/kernel/9999-wvg-sd-528-translation.patch` with all fixes.
 2. Run [test/run-qemu.sh](test/run-qemu.sh) against a test build of the same
    tree before rebooting the server. Everything except T6 and T7 must say OK.
 3. After the reboot run `zpool scrub tank`, then `zpool status -v`. This is
@@ -65,6 +69,8 @@ explained below).
 | 9 | medium | `port_universal.py` took hunk 1 as present when it was rejected (it checked `sd_528_page_pool`, which hunk 12 adds too); with `--fuzz` the max_dev_sectors cap landed in a comment on 6.8 and was never applied | build | yes |
 | 10 | low | the sd_done() alignment check ran on 528-byte resid with power-of-two arithmetic | from code | yes, skipped for emulated commands |
 | 11 | low | pool creation sat between `sd_page_pool` allocation and its NULL test after `--fuzz` | from code | yes |
+| 12 | medium | a bounce reserve smaller than one maximum-size request stalls the disk for good: the request is requeued forever, the process sits in D state and cannot be killed | yes, T50 | yes, step 10c |
+| 13 | medium | the build recipe in RESULTS.md, and `rebase_pve_528_patch.py` for Proxmox, both produce a kernel without any of these fixes | from docs | recipe marked superseded, `make_pve_patch.sh` added |
 
 ### 1. The retry path
 
@@ -191,6 +197,73 @@ reported, and both versions pass.
 `patch --fuzz=3`. Each tree builds `sd.o` with `W=1` and no warnings, and a
 second run changes nothing. On 7.0 the result is byte-identical to the tree the
 QEMU tests ran on.
+
+## Second pass: torture, TRIM, error handling
+
+The first pass tested one fault at a time. The second one adds
+[test/torture.c](test/torture.c): several threads doing random O_DIRECT writes
+and reads (1 to 1024 sectors) against a shadow copy that knows the generation
+of every sector, so a bad read says whether it got stale data, shifted data or
+another sector's data. Buffers are split into iovecs in steps of 64 bytes, the
+SCSI `dma_alignment`, so 512-byte sectors straddle segment boundaries; that is
+a case the pack and unpack loops have to get right, and ZFS never produces it,
+so nothing else would exercise it. While it runs, a loop keeps injecting
+resets, unit attentions, host busy, short transfers, transport errors and
+recovered errors, and rescans the disk. Scenarios are picked with `t=` on the
+kernel command line, see [test/run-qemu.sh](test/run-qemu.sh).
+
+| scenario | unfixed 7.0 | fixed 7.0 |
+|---|---|---|
+| torture, 4 threads, 60 s, random faults | **44,426 bad sectors**, among them other sectors' data | 8,733 writes, 5,848 reads, 0 bad |
+| torture, 8 threads, no faults, 64-byte iovecs | 0 bad | 0 bad |
+| torture at 2 MiB requests (34 segments) with faults | **bad sectors, other sectors' data** | 0 bad |
+| 2 MiB read + DID_RESET | **wrong data** | OK |
+| READ(16)/WRITE(16) above 2^32 blocks + reset/UA | **READ(16) wrong data** | OK |
+| command timeout, EH abort, retry (read and write) | OK | OK |
+| host busy requeue on write | OK | OK |
+| torture during a rescan every 50 ms | OK | OK |
+| discard: range reads zero, neighbours intact, raw 528-byte block zero | OK | OK |
+| BLKZEROOUT (WRITE SAME is off, so plain writes) | OK | OK |
+| discard not aligned to 4 KiB, neighbours intact | OK | OK |
+| 1 MiB read, pool of 8 chunks (17 needed) | not run | before 10c: **hung for good**; after: OK |
+
+"Other sectors' data" is the worst kind: the bounce buffer of an unrelated
+request, possibly for another disk, handed back as the contents of this
+sector.
+
+What this pass settles for ZFS:
+
+- **TRIM is safe.** UNMAP carries only LBA ranges and passes straight through;
+  a discard never touches a sector outside its range, and discarded sectors
+  read back as zeros through the emulation and natively. `autotrim=on` is fine.
+- **Power-loss behaviour is that of a native disk.** Every 512-byte host sector
+  lives in exactly one 528-byte device sector and nothing is read, modified and
+  written back, so a torn write tears exactly as it would natively. FLUSH and
+  FUA are not touched by the emulation.
+- **Timeouts and the error handler** keep the bounce table: the EH saves and
+  restores the command's data buffer around its own commands.
+
+### 12. A reserve smaller than one request
+
+`emulate_528_pool_chunks` is clamped to 1..65536, but nothing tied it to the
+request size. A 1 MiB request needs 17 chunks at once from a reserve that never
+grows; with fewer in the pool, `mempool_alloc(GFP_ATOMIC)` fails every time,
+the request goes back to the queue, and so on forever. The process waiting on
+it sits in D state, `timeout` cannot kill it, and the disk cannot be detached.
+Step 10c caps the request size at what the reserve holds (T50: with 8 chunks
+the cap drops to 496 KiB and the read completes). Only a misconfiguration
+reaches this, but the failure is total.
+
+### 13. Two build paths without the fixes
+
+The build recipe in [RESULTS.md](RESULTS.md) runs `port_to_68.py`, and
+`rebase_pve_528_patch.py` rebases the raw patch for Proxmox. Neither carries
+any fix from this document. The recipe is now marked as superseded, and
+[make_pve_patch.sh](make_pve_patch.sh) takes the place of the rebase tool: it
+works on a copy of `sd.c`/`sd.h` from a pristine tree, runs the patch and
+`port_universal.py`, refuses to write anything if a fix is missing, and checks
+that the result applies to the tree. For 7.0 its output reproduces the tested
+tree byte for byte; it also works on 6.17.
 
 ## Compatibility with existing data
 

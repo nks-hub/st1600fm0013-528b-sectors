@@ -79,6 +79,11 @@ sektorů, block size beze změny 528 B.
 
 ## Build recept
 
+> **Překonáno.** Tímhle postupem vznikl testovací build 6.8 a zůstává tu jako
+> záznam. Vyrobí kernel **bez** oprav z [HARDENING_CZ.md](HARDENING_CZ.md).
+> Překládej přes `port_universal.py` podle jeho docstringu a výsledek ověř
+> sadou v [test/](test/).
+
 ```bash
 # zdroj
 curl -O https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.8.tar.xz

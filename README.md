@@ -79,7 +79,8 @@ tools/
 
 kernel-patch/
   wvg-sd-528.patch                       third-party sd driver patch, PROVENANCE UNKNOWN
-  rebase_pve_528_patch.py                its rebase tool
+  rebase_pve_528_patch.py                its rebase tool (carries none of the fixes)
+  make_pve_patch.sh                      Proxmox kernel patch with all fixes, use this instead
   apply_manual_hunks.py                  my attempt to apply the rejected hunks
   ORIGIN.md                              what we know about the patch
   VERIFICATION.md                        why it could not be used at first

@@ -80,6 +80,11 @@ sectors, block size unchanged at 528 B.
 
 ## Build recipe
 
+> **Superseded.** This is the recipe the 6.8 test build used, kept as a
+> record. It produces a kernel **without** the fixes from
+> [HARDENING.md](HARDENING.md). Build with `port_universal.py` instead, as its
+> docstring describes, and check the result with [test/](test/).
+
 ```bash
 # source
 curl -O https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.8.tar.xz

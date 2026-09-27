@@ -78,7 +78,8 @@ tools/
 
 kernel-patch/
   wvg-sd-528.patch                       cizí patch sd driveru, PŮVOD NEZNÁMÝ
-  rebase_pve_528_patch.py                jeho rebase nástroj
+  rebase_pve_528_patch.py                jeho rebase nástroj (nenese žádnou z oprav)
+  make_pve_patch.sh                      patch pro kernel Proxmoxu se všemi opravami, použij tenhle
   apply_manual_hunks.py                  můj pokus doaplikovat odmítnuté hunky
   ORIGIN_CZ.md                           co o patchi víme
   VERIFICATION_CZ.md                     proč ho zatím nelze použít
