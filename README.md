@@ -12,8 +12,8 @@
 **Status: 512 B is solved, two ways.**
 
 1. **Reformat.** Disks that are not Seagate-locked accept
-   `sg_format --size=512` outright: no capacity loss, stock kernel, full native
-   speed. Verified on an HGST unit, see
+   `sg_format --size=512` outright: no capacity loss, stock kernel, no
+   emulation layer. Verified on an HGST unit, see
    [`reformat-528-512.md`](reformat-528-512.md). **Try this first**; a
    non-destructive probe tells you in a fraction of a second whether it will
    work.
@@ -81,8 +81,6 @@ kernel-patch/
   VERIFICATION.md                        why it could not be used at first
   RESULTS.md                             test results
 ```
-
-Every document has a Czech counterpart with a `_CZ` suffix.
 
 ## Requirements
 
@@ -266,7 +264,7 @@ entropy around 1.3.
 **The first 32 bytes are identical across all three**
 (`f3 00 00 00 30 00 00 00 00 40 01 00 …`), so the format is the same.
 
-The degree of similarity is the interesting part:
+Byte-level similarity:
 
 ```
 IBM 6214     vs Seagate 000A   ->  89.7 % identical bytes
@@ -301,7 +299,7 @@ Firmware `6214` blocks three things with **a single vendor-specific code**,
 
 3. **Firmware replacement.** Crossflashing with the official `seaflashlin` and a
    genuine signed `KohoSSD-SED-0004.LOD` ends after 22 segments with
-   `sense_key=0x05`. Interestingly, the STD image is rejected *immediately* while
+   `sense_key=0x05`. The STD image is rejected *immediately* while
    the SED one gets further, so the disk did recognise the file type and only
    refused it at the customer status check.
 
@@ -385,7 +383,7 @@ seagate_0007 -> offset 0x10fcc      (older version, different layout)
 
 ### The disk configuration is readable data
 
-At `0x0e1140` sits the content of the INQUIRY response, simply stored as text:
+At `0x0e1140` sits the content of the INQUIRY response, stored as plain text:
 
 ```
 IBM      9f 00 10 02  "IBM-SSG IBM-SSGSSVJ1P6  6214"  "ZAL15M5Q  216214"
@@ -537,7 +535,7 @@ versions. That is exactly the combination leromarinvit was missing.
 ## Alternatives, if the hardware route never happens
 
 1. **Deploy the disks where 528 B is native**: IBM Storwize, FlashSystem,
-   DS8880. Full capacity, full performance, zero work.
+   DS8880. There they run at full capacity with no changes.
 2. **A shim over NBD/iSCSI** mapping 512B logical blocks onto 528B physical ones.
    It works in principle, but it is permanent overhead and non-standard
    operation.
@@ -550,8 +548,7 @@ standard block layer does not work with it.
 
 ## Capacity after a possible conversion
 
-The good news: **nothing would be lost.** Per the Seagate manual, table 3 for the
-1600 GB model:
+**No capacity is lost.** Per the Seagate manual, table 3 for the 1600 GB model:
 
 ```
 today: 3,030,911,576 × 528 B = 1,600,321,312,128 B
@@ -586,7 +583,7 @@ documentation additionally states "JBOD is not supported on SSDs".
 
 ## Testing
 
-The results are documented, not asserted:
+Results and measurements:
 
 - [`reformat-528-512.md`](reformat-528-512.md) - reformat verified on an HGST unit
 - [`kernel-patch/VERIFICATION.md`](kernel-patch/VERIFICATION.md) - why the patch could not be used at first
