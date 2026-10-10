@@ -1,7 +1,11 @@
 # IBM ST1600FM0013: firmware, dumps and what is known about the lock
 
-An archive of the attempt to unlock IBM-branded Seagate SAS SSDs that are hard
-locked to 528-byte sectors and a 6 Gb/s link.
+[![Platform](https://img.shields.io/badge/platform-Linux-FCC624.svg?logo=linux&logoColor=black)](#requirements)
+[![Python](https://img.shields.io/badge/Python-3-3776AB.svg?logo=python&logoColor=white)](tools/)
+[![Docs](https://img.shields.io/badge/docs-EN%20%7C%20CZ-informational.svg)](README_CZ.md)
+[![License](https://img.shields.io/badge/License-not%20specified-lightgrey.svg)](#license)
+
+> An archive of the attempt to unlock IBM-branded Seagate SAS SSDs that are hard locked to 528-byte sectors and a 6 Gb/s link.
 
 *Czech version: [README_CZ.md](README_CZ.md)*
 
@@ -22,24 +26,19 @@ locked to 528-byte sectors and a 6 Gb/s link.
 known route is PC-3000 SAS with its "unlock microprogram" function, which can
 load another vendor's firmware.
 
----
+## Features
 
-## Our disks
+- 🔓 **Reformat guide** - When `sg_format --size=512` works and how to probe for it non-destructively, see [`reformat-528-512.md`](reformat-528-512.md)
+- 🐧 **Kernel patch** - An sd-driver patch that exposes a 528-byte disk as a native 512-byte block device, with origin, verification, results and measurements in [`kernel-patch/`](kernel-patch/)
+- 🔬 **Lock analysis** - Where the IBM sector-size lock sits in the SPI flash configuration block, and how its checksum works
+- 🛠️ **Flash tools** - Python scripts to parse, compare and patch the SPI flash dumps, plus an nbdkit 528 → 512 shim, in [`tools/`](tools/)
+- 💾 **Reference dumps** - Sources, download links and checksums of SPI flash dumps from an IBM unit and a genuine Seagate unit in two firmware versions, plus the official LOD package (the binaries are downloaded, not committed)
+- 🔌 **HBA firmware fix** - SAS3216 "9305-16i" clone controller upgrade to P16.12, in [`hba/`](hba/README.md)
+- 📶 **Link-rate analysis** - Why the disks run at 6 Gb/s, in [`linkrate-6g-analysis.md`](linkrate-6g-analysis.md)
+- 🗄️ **ZFS layout** - ZFS on eight emulated 528B disks: layout, tuning, and measurement, in [`zfs-pool-design.md`](zfs-pool-design.md)
+- 🇨🇿 **Czech translation** - Every document has a Czech counterpart with a `_CZ` suffix
 
-| | |
-|---|---|
-| Model | ST1600FM0013 (Seagate Nytro 1200.2, codename **Koho**) |
-| Reports itself as | `IBM-SSG` / `IBM-SSGSSVJ1P6` / firmware `6214` |
-| IBM FRU | 02AM752, EC M09099 |
-| Part number | `1NT2L2-039` (base `1NT2L2` = Seagate SED Mainstream Endurance) |
-| Capacity | 1.6 TB, 3,030,911,576 × 528 B |
-| Manufactured | October–November 2018 |
-| Units | 8, all healthy (SMART OK, 0 bad sectors, 0–5 % wear) |
-| Server | HPE CL2100 Gen10, Broadcom SAS3216 HBA in IT mode |
-
----
-
-## Directory contents
+### Directory contents
 
 ```
 dumps/
@@ -85,26 +84,145 @@ kernel-patch/
 
 Every document has a Czech counterpart with a `_CZ` suffix.
 
-### Checksums
+## Requirements
 
+- **Disks:** IBM-branded Seagate SAS SSDs locked to 528-byte sectors (see [Our disks](#our-disks))
+- **OS:** Linux with `sg3_utils` (`sg_format`, `sg_raw`, `sg_readcap`, `sg_inq`, `sg_dd`)
+- **Python 3** for the scripts in [`tools/`](tools/) and [`kernel-patch/`](kernel-patch/)
+- **`flashrom`** for reading and writing the SPI flash
+- **Hardware for the SPI flash route:**
+
+| Item | Note | Approx. price |
+|---|---|---|
+| CH341A SPI programmer | USB, the **3.3 V** version (black board; the green one supplies 5 V and destroys the chip) | €6–10 |
+| WSON-8 / DFN-8 → DIP adapter | for `W25Q32FWZEIG`, 8×6 mm package | €4–8 |
+| Hot air gun | for desoldering the chip | |
+| Flux, solder, tweezers | | |
+
+A SOIC clip is **not recommended**. Both people who did this on the forum agreed
+that the dump does not come out reliably with one and they had to remove the chip
+anyway.
+
+## Installation
+
+```bash
+git clone https://github.com/nks-hub/st1600fm0013-528b-sectors.git
+cd st1600fm0013-528b-sectors
 ```
-ibm_ST1600FM0013_6214.bin
-  sha256 f674540cf92f5ef5b6a1e042cdc1ed95926d05ae212c02910e50855e19a85f86
-  md5    0eaece0f023f226c6b7b4796c50a5ce4
 
-seagate_ST200FM0133_0007.bin
-  sha256 86cab26df95e0f7cbb51f97f9b5f094ec678859078faa8642828fa9f55dba7a9
-  md5    894f33a21acd7bfad5f165ee034289cf
+The scripts in [`tools/`](tools/) run directly with Python 3. The LOD parser
+`tools/hdd_firmware_tools/` is not committed; clone it from
+[leromarinvit's fork, branch `ibm-wip`](https://github.com/leromarinvit/hdd_firmware_tools/tree/ibm-wip).
+The kernel patch is built into the kernel following the build recipe in
+[`kernel-patch/RESULTS.md`](kernel-patch/RESULTS.md).
 
-seagate_ST200FM0133_000A.bin
-  sha256 e160963cb8945c7631831328262327ac560fd03a2c2fc8a4c5bad7f2d7cff2e1
-  md5    44e5c02cc389e571c733c8554991ac92
+## Usage
 
-12002SSD-Koho-SAS-0004.zip
-  sha256 adc2abf82352ccf4a63ec4c07ade161bcc18cabf55ce8288b699834e8ea64472
+Pick the route in this order:
+
+1. **Reformat** with `sg_format --size=512`, see [`reformat-528-512.md`](reformat-528-512.md).
+2. **Kernel patch** for disks that refuse the reformat, see [`kernel-patch/RESULTS.md`](kernel-patch/RESULTS.md).
+3. **Reprogramming the SPI flash**, the procedure below.
+
+### Procedure: reprogramming the SPI flash
+
+Written down in case a programmer turns up. The software route is exhausted (see
+above); this is the only verified possibility.
+
+**1. Identify the disk**
+
+Before taking anything apart, note the serial number. You can make the disk in a
+given slot blink like this:
+
+```bash
+timeout 2 sg_dd if=/dev/sgN bs=528 count=200000 of=/dev/null; sleep 1
 ```
 
----
+The read has to go through `/dev/sgN`, not `/dev/sdX`, because the block device has zero
+size, so no I/O flows through it.
+
+**2. Disassembly and desoldering**
+
+The `W25Q32FWZEIG` chip is on the PCB near the SAS connector, WSON-8 package
+8×6 mm. A hot air gun takes it off in a few tens of seconds. Note the orientation
+(dot = pin 1).
+
+**3. Dump it twice, immediately**
+
+```bash
+flashrom -p ch341a_spi -r dump1.bin
+flashrom -p ch341a_spi -r dump2.bin
+sha256sum dump1.bin dump2.bin      # MUST match
+```
+
+If the hashes differ, the contact is bad. Do not fix it in software, repeat the
+read.
+
+**4. Verify the dump makes sense**
+
+```bash
+python tools/patch_ibm_lock.py dump1.bin /dev/null 2>&1 | head -5
+```
+
+It must print `sum=0x0000 OK` and an INQUIRY with **your** serial number. If the
+sum does not check out, the dump is corrupt.
+
+**5. Patch**
+
+```bash
+python tools/patch_ibm_lock.py dump1.bin patched.bin \
+       --mode blocksize --blocks 3125627568
+```
+
+Seven bytes change and the checksum is recomputed. The tool verifies for itself
+that the sum came out zero and prints which offsets it changed.
+
+**6. Write and verify**
+
+```bash
+flashrom -p ch341a_spi -w patched.bin -V
+flashrom -p ch341a_spi -r verify.bin
+sha256sum patched.bin verify.bin   # MUST match
+```
+
+**7. Back in and test**
+
+Solder it back, plug it in, and check:
+
+```bash
+sg_readcap -l /dev/sgN      # expect 512 B and 3,125,627,568 blocks
+sg_inq /dev/sgN             # INQUIRY should stay IBM-SSG / 6214
+```
+
+#### What can go wrong
+
+- **The firmware validates the configuration block with a signature as well.** We
+  can do the checksum; a signature would be a problem. There is no way to find
+  out other than by writing, but you have the original dump, so it can be
+  reverted.
+- **A bad dump due to poor contact.** That is why you read twice and compare.
+- **Overheating the chip.** Hot air gun at a sensible temperature, not full
+  blast.
+- **Writing someone else's dump.** The configuration block carries the serial
+  number and calibration of a specific unit. Never use
+  `dumps/ibm_ST1600FM0013_6214.bin`, which belongs to a different disk
+  (SN `ZAL15M5Q`).
+
+Keep the original dump. As long as you have it, the whole operation is
+reversible.
+
+## Our disks
+
+| | |
+|---|---|
+| Model | ST1600FM0013 (Seagate Nytro 1200.2, codename **Koho**) |
+| Reports itself as | `IBM-SSG` / `IBM-SSGSSVJ1P6` / firmware `6214` |
+| IBM FRU | 02AM752, EC M09099 |
+| Part number | `1NT2L2-039` (base `1NT2L2` = Seagate SED Mainstream Endurance) |
+| Capacity | 1.6 TB, 3,030,911,576 × 528 B |
+| Manufactured | October–November 2018 |
+| Units | 8, all healthy (SMART OK, 0 bad sectors, 0–5 % wear) |
+| Server | HPE CL2100 Gen10, Broadcom SAS3216 HBA in IT mode |
 
 ## Where it comes from
 
@@ -132,7 +250,6 @@ distributes it publicly.
 here in [leromarinvit's fork, branch `ibm-wip`](https://github.com/leromarinvit/hdd_firmware_tools/tree/ibm-wip).
 Latest commit: *"WIP: add artifact types found in Koho LOD"*.
 
----
 
 ## What the dumps contain
 
@@ -161,7 +278,6 @@ Seagate firmware versions are to each other**. That suggests IBM 6214 derives
 from a branch close to 000A, with the differences concentrated in configuration
 rather than in the core.
 
----
 
 ## What the lock does
 
@@ -197,7 +313,6 @@ the road:
 > must be applicable to the correct drive model, and have compatible revision and
 > **customer status**.
 
----
 
 ## What was tried and does not work
 
@@ -243,7 +358,6 @@ The PSID of these disks is printed on the label, in two rows of 16 characters. I
 is a security credential for a factory reset of a SED drive, so do not copy it
 anywhere.
 
----
 
 ## Where exactly the lock sits (own analysis, 28 Aug 2026)
 
@@ -392,7 +506,6 @@ we can recompute the checksum for it. One unknown remains: whether the firmware
 validates the configuration block by anything beyond the checksum. That can only
 be established by writing.
 
----
 
 ## The open route: reprogramming the SPI flash
 
@@ -420,7 +533,6 @@ The data for that is complete in this directory: we have the official LOD, a dum
 from an IBM disk of our model, and dumps from a genuine Seagate disk in two
 versions. That is exactly the combination leromarinvit was missing.
 
----
 
 ## Alternatives, if the hardware route never happens
 
@@ -435,7 +547,6 @@ versions. That is exactly the combination leromarinvit was missing.
 For Proxmox, note that LVM, ext4, XFS and ZFS will not see a 528-byte disk; the
 standard block layer does not work with it.
 
----
 
 ## Capacity after a possible conversion
 
@@ -452,7 +563,9 @@ difference:        +2,688 B per disk  (0.0000 %)
 IBM keeps the full nominal 1.6 TB even with 528-byte sectors; the 16 metadata
 bytes per sector come out of internal reserve, not user capacity.
 
----
+*Compiled 28 Aug 2026. Measured on a live disk, not taken from forums, with the
+exception of the dumps themselves and quoted third-party experience, which are
+attributed by author name.*
 
 ## Links
 
@@ -471,112 +584,59 @@ bytes per sector come out of internal reserve, not user capacity.
 It failed even on genuine IBM Power8/Power9 with `iprconfig` and under AIX. IBM
 documentation additionally states "JBOD is not supported on SSDs".
 
+## Testing
+
+The results are documented, not asserted:
+
+- [`reformat-528-512.md`](reformat-528-512.md) - reformat verified on an HGST unit
+- [`kernel-patch/VERIFICATION.md`](kernel-patch/VERIFICATION.md) - why the patch could not be used at first
+- [`kernel-patch/RESULTS.md`](kernel-patch/RESULTS.md) - QEMU test results including cross-validation
+- [`kernel-patch/MEASUREMENTS.md`](kernel-patch/MEASUREMENTS.md) - what the emulation actually does, measured
+- [`kernel-patch/PERFORMANCE.md`](kernel-patch/PERFORMANCE.md) - where the throttles are, and what to tune
+
+Verify downloaded dumps and packages against these checksums:
+
+```
+ibm_ST1600FM0013_6214.bin
+  sha256 f674540cf92f5ef5b6a1e042cdc1ed95926d05ae212c02910e50855e19a85f86
+  md5    0eaece0f023f226c6b7b4796c50a5ce4
+
+seagate_ST200FM0133_0007.bin
+  sha256 86cab26df95e0f7cbb51f97f9b5f094ec678859078faa8642828fa9f55dba7a9
+  md5    894f33a21acd7bfad5f165ee034289cf
+
+seagate_ST200FM0133_000A.bin
+  sha256 e160963cb8945c7631831328262327ac560fd03a2c2fc8a4c5bad7f2d7cff2e1
+  md5    44e5c02cc389e571c733c8554991ac92
+
+12002SSD-Koho-SAS-0004.zip
+  sha256 adc2abf82352ccf4a63ec4c07ade161bcc18cabf55ce8288b699834e8ea64472
+```
+
+## Contributing
+
+Contributions are welcome! For major changes, please open an issue first.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'feat: description'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## Support
+
+- 📧 **Email:** dev@nks-hub.cz
+- 🐛 **Bug reports:** [GitHub Issues](https://github.com/nks-hub/st1600fm0013-528b-sectors/issues)
+
+## License
+
+This repository does not include a license file. Third-party material (the SPI
+flash dumps, the official Seagate LOD package and the kernel patch of unknown
+provenance) is attributed in [Where it comes from](#where-it-comes-from) and
+[`kernel-patch/ORIGIN.md`](kernel-patch/ORIGIN.md).
+
 ---
 
-*Compiled 28 Aug 2026. Measured on a live disk, not taken from forums, with the
-exception of the dumps themselves and quoted third-party experience, which are
-attributed by author name.*
-
----
-
-# Procedure: reprogramming the SPI flash
-
-Written down in case a programmer turns up. The software route is exhausted (see
-above); this is the only verified possibility.
-
-## What you need
-
-| Item | Note | Approx. price |
-|---|---|---|
-| CH341A SPI programmer | USB, the **3.3 V** version (black board; the green one supplies 5 V and destroys the chip) | €6–10 |
-| WSON-8 / DFN-8 → DIP adapter | for `W25Q32FWZEIG`, 8×6 mm package | €4–8 |
-| Hot air gun | for desoldering the chip | |
-| Flux, solder, tweezers | | |
-
-A SOIC clip is **not recommended**. Both people who did this on the forum agreed
-that the dump does not come out reliably with one and they had to remove the chip
-anyway.
-
-## Procedure
-
-**1. Identify the disk**
-
-Before taking anything apart, note the serial number. You can make the disk in a
-given slot blink like this:
-
-```bash
-timeout 2 sg_dd if=/dev/sgN bs=528 count=200000 of=/dev/null; sleep 1
-```
-
-The read has to go through `/dev/sgN`, not `/dev/sdX`, because the block device has zero
-size, so no I/O flows through it.
-
-**2. Disassembly and desoldering**
-
-The `W25Q32FWZEIG` chip is on the PCB near the SAS connector, WSON-8 package
-8×6 mm. A hot air gun takes it off in a few tens of seconds. Note the orientation
-(dot = pin 1).
-
-**3. Dump it twice, immediately**
-
-```bash
-flashrom -p ch341a_spi -r dump1.bin
-flashrom -p ch341a_spi -r dump2.bin
-sha256sum dump1.bin dump2.bin      # MUST match
-```
-
-If the hashes differ, the contact is bad. Do not fix it in software, repeat the
-read.
-
-**4. Verify the dump makes sense**
-
-```bash
-python tools/patch_ibm_lock.py dump1.bin /dev/null 2>&1 | head -5
-```
-
-It must print `sum=0x0000 OK` and an INQUIRY with **your** serial number. If the
-sum does not check out, the dump is corrupt.
-
-**5. Patch**
-
-```bash
-python tools/patch_ibm_lock.py dump1.bin patched.bin \
-       --mode blocksize --blocks 3125627568
-```
-
-Seven bytes change and the checksum is recomputed. The tool verifies for itself
-that the sum came out zero and prints which offsets it changed.
-
-**6. Write and verify**
-
-```bash
-flashrom -p ch341a_spi -w patched.bin -V
-flashrom -p ch341a_spi -r verify.bin
-sha256sum patched.bin verify.bin   # MUST match
-```
-
-**7. Back in and test**
-
-Solder it back, plug it in, and check:
-
-```bash
-sg_readcap -l /dev/sgN      # expect 512 B and 3,125,627,568 blocks
-sg_inq /dev/sgN             # INQUIRY should stay IBM-SSG / 6214
-```
-
-## What can go wrong
-
-- **The firmware validates the configuration block with a signature as well.** We
-  can do the checksum; a signature would be a problem. There is no way to find
-  out other than by writing, but you have the original dump, so it can be
-  reverted.
-- **A bad dump due to poor contact.** That is why you read twice and compare.
-- **Overheating the chip.** Hot air gun at a sensible temperature, not full
-  blast.
-- **Writing someone else's dump.** The configuration block carries the serial
-  number and calibration of a specific unit. Never use
-  `dumps/ibm_ST1600FM0013_6214.bin`, which belongs to a different disk
-  (SN `ZAL15M5Q`).
-
-Keep the original dump. As long as you have it, the whole operation is
-reversible.
+<p align="center">
+  Made with ❤️ by <a href="https://github.com/nks-hub">NKS Hub</a>
+</p>
