@@ -75,8 +75,11 @@ tools/
 
 kernel-patch/
   wvg-sd-528.patch                       third-party sd driver patch, PROVENANCE UNKNOWN
-  rebase_pve_528_patch.py                its rebase tool
+  port_universal.py                      lands the patch on any kernel tree, by anchors
+  rebase_pve_528_patch.py                cuts it as one diff against a Proxmox kernel tree
+  check_trees.py                         regression test of the two on real kernel trees
   apply_manual_hunks.py                  my attempt to apply the rejected hunks
+  PORTING.md                             porting to a new kernel, regression test
   ORIGIN.md                              what we know about the patch
   VERIFICATION.md                        why it could not be used at first
   RESULTS.md                             test results
@@ -590,6 +593,7 @@ Results and measurements:
 - [`kernel-patch/RESULTS.md`](kernel-patch/RESULTS.md) - QEMU test results including cross-validation
 - [`kernel-patch/MEASUREMENTS.md`](kernel-patch/MEASUREMENTS.md) - what the emulation actually does, measured
 - [`kernel-patch/PERFORMANCE.md`](kernel-patch/PERFORMANCE.md) - where the throttles are, and what to tune
+- [`kernel-patch/PORTING.md`](kernel-patch/PORTING.md) - landing the patch on a new kernel without manual work, and the regression test for it
 
 Verify downloaded dumps and packages against these checksums:
 

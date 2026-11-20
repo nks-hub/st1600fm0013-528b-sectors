@@ -75,8 +75,11 @@ tools/
 
 kernel-patch/
   wvg-sd-528.patch                       cizí patch sd driveru, PŮVOD NEZNÁMÝ
-  rebase_pve_528_patch.py                jeho rebase nástroj
+  port_universal.py                      nasadí patch na libovolný strom kernelu, podle kotev
+  rebase_pve_528_patch.py                vyrobí z něj jeden diff proti stromu kernelu Proxmoxu
+  check_trees.py                         regresní test obou na skutečných stromech kernelu
   apply_manual_hunks.py                  můj pokus doaplikovat odmítnuté hunky
+  PORTING_CZ.md                          přenos na nový kernel, regresní test
   ORIGIN_CZ.md                           co o patchi víme
   VERIFICATION_CZ.md                     proč ho zatím nelze použít
   RESULTS_CZ.md                          výsledky testů
